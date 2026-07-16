@@ -182,7 +182,48 @@
                     lines.push(...picks);
                 }
             }
-            // ※ 後続分析（3C/SWOT等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
+            // 5フォース → 3c / swot に業界総評を引き継ぐ
+            const forces = results['5forces'];
+            if (forces && ['3c', 'swot'].includes(targetId)) {
+                if (forces.data && forces.data.overall) {
+                    lines.push(`■ 5フォース分析（${forces.analyzedAt || ''} 実施）の業界総評`);
+                    lines.push(`  ${forces.data.overall}`);
+                }
+            }
+            // 3C → swot に自社・顧客・競合・KSFを引き継ぐ
+            const threec = results['3c'];
+            if (threec && ['swot'].includes(targetId)) {
+                const d = threec.data || {};
+                const block = [];
+                if (Array.isArray(d.company) && d.company.length)    block.push(`  自社: ${d.company.join(' / ')}`);
+                if (Array.isArray(d.customer) && d.customer.length)  block.push(`  顧客: ${d.customer.join(' / ')}`);
+                if (Array.isArray(d.competitor) && d.competitor.length) block.push(`  競合: ${d.competitor.join(' / ')}`);
+                if (Array.isArray(d.ksf) && d.ksf.length)            block.push(`  KSF: ${d.ksf.join(' / ')}`);
+                if (block.length) {
+                    lines.push(`■ 3C分析（${threec.analyzedAt || ''} 実施）`);
+                    lines.push(...block);
+                }
+            }
+            // SWOT → strategy / bmc / 7s に強み・弱み・クロス戦略を引き継ぐ
+            const swot = results['swot'];
+            if (swot && ['strategy', 'bmc', '7s'].includes(targetId)) {
+                const d = swot.data || {};
+                const block = [];
+                if (Array.isArray(d.strengths) && d.strengths.length)   block.push(`  強み: ${d.strengths.join(' / ')}`);
+                if (Array.isArray(d.weaknesses) && d.weaknesses.length) block.push(`  弱み: ${d.weaknesses.join(' / ')}`);
+                const c = d.cross || {};
+                const crossPairs = [];
+                if (Array.isArray(c.so) && c.so.length) crossPairs.push(`SO(積極): ${c.so.join(' / ')}`);
+                if (Array.isArray(c.wo) && c.wo.length) crossPairs.push(`WO(改善): ${c.wo.join(' / ')}`);
+                if (Array.isArray(c.st) && c.st.length) crossPairs.push(`ST(差別化): ${c.st.join(' / ')}`);
+                if (Array.isArray(c.wt) && c.wt.length) crossPairs.push(`WT(防衛): ${c.wt.join(' / ')}`);
+                crossPairs.forEach(cp => block.push(`  ${cp}`));
+                if (block.length) {
+                    lines.push(`■ クロスSWOT分析（${swot.analyzedAt || ''} 実施）`);
+                    lines.push(...block);
+                }
+            }
+            // ※ 後続分析（strategy/bmc等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
             return lines.join('\n');
         }
 
@@ -226,8 +267,8 @@
             }
         }
 
-        // 貼り付けテキストをPESTELスキーマとして検証（アプリは落とさない）
-        function parsePestelJson(text) {
+        // 貼り付けテキストを指定frameworkのスキーマとして検証（アプリは落とさない・汎用）
+        function parseResultJson(text, expectedFramework, frameworkLabel) {
             const clean = String(text).replace(/```json|```/g, '').trim();
             let obj;
             try {
@@ -238,13 +279,18 @@
             if (!obj || typeof obj !== 'object') {
                 return { ok: false, error: 'JSONオブジェクトではありません。' };
             }
-            if (obj.framework !== 'pestel') {
-                return { ok: false, error: 'これはPESTEL分析の結果ではありません（framework: ' + (obj.framework || '不明') + '）。' };
+            if (obj.framework !== expectedFramework) {
+                return { ok: false, error: 'これは' + frameworkLabel + 'の結果ではありません（framework: ' + (obj.framework || '不明') + '）。' };
             }
             if (!obj.data || typeof obj.data !== 'object') {
                 return { ok: false, error: 'data項目がありません。' };
             }
             return { ok: true, value: obj };
+        }
+
+        // 貼り付けテキストをPESTELスキーマとして検証（アプリは落とさない）
+        function parsePestelJson(text) {
+            return parseResultJson(text, 'pestel', 'PESTEL分析');
         }
 
         // --- アイコンコンポーネント (Lucide Icons SVG) ---
@@ -333,6 +379,24 @@
             const [toast, setToast] = useState('');               // 成功トースト
 
             const pestelResult = results['pestel'] || null;
+
+            // --- 5フォース段階導入用の状態 ---
+            const [forcesModal, setForcesModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [forcesText, setForcesText] = useState('');
+            const [forcesError, setForcesError] = useState('');
+            const forcesResult = results['5forces'] || null;
+
+            // --- 3C段階導入用の状態 ---
+            const [threecModal, setThreecModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [threecText, setThreecText] = useState('');
+            const [threecError, setThreecError] = useState('');
+            const threecResult = results['3c'] || null;
+
+            // --- SWOT段階導入用の状態 ---
+            const [swotModal, setSwotModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [swotText, setSwotText] = useState('');
+            const [swotError, setSwotError] = useState('');
+            const swotResult = results['swot'] || null;
 
             // --- 基本情報・プロンプト生成用の状態 ---
             const [basicInfo, setBasicInfo] = useState({ ...EMPTY_BASIC });
@@ -446,7 +510,113 @@
                 e.target.value = '';
             };
 
-            // 設定モーダルを開く
+            // --- 5フォース: 取込確定 ---
+            const importForces = () => {
+                const res = parseResultJson(forcesText, '5forces', '5フォース分析');
+                if (!res.ok) { setForcesError(res.error); return; }
+                const next = { ...results, '5forces': res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setForcesError('');
+                setForcesText('');
+                setToast('5フォース分析を取り込みました');
+                setForcesModal('result');
+            };
+
+            // --- 5フォース: 結果削除 ---
+            const deleteForces = () => {
+                if (!window.confirm('5フォース分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['5forces'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setForcesModal('menu');
+            };
+
+            // --- 5フォース: ファイル読込 ---
+            const handleForcesFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setForcesText(String(reader.result || '')); setForcesError(''); };
+                reader.onerror = () => setForcesError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // --- 3C: 取込確定 ---
+            const importThreec = () => {
+                const res = parseResultJson(threecText, '3c', '3C分析');
+                if (!res.ok) { setThreecError(res.error); return; }
+                const next = { ...results, '3c': res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setThreecError('');
+                setThreecText('');
+                setToast('3C分析を取り込みました');
+                setThreecModal('result');
+            };
+
+            // --- 3C: 結果削除 ---
+            const deleteThreec = () => {
+                if (!window.confirm('3C分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['3c'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setThreecModal('menu');
+            };
+
+            // --- 3C: ファイル読込 ---
+            const handleThreecFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setThreecText(String(reader.result || '')); setThreecError(''); };
+                reader.onerror = () => setThreecError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // --- SWOT: 取込確定 ---
+            const importSwot = () => {
+                const res = parseResultJson(swotText, 'swot', 'クロスSWOT分析');
+                if (!res.ok) { setSwotError(res.error); return; }
+                const next = { ...results, swot: res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setSwotError('');
+                setSwotText('');
+                setToast('クロスSWOT分析を取り込みました');
+                setSwotModal('result');
+            };
+
+            // --- SWOT: 結果削除 ---
+            const deleteSwot = () => {
+                if (!window.confirm('クロスSWOT分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['swot'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setSwotModal('menu');
+            };
+
+            // --- SWOT: ファイル読込 ---
+            const handleSwotFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setSwotText(String(reader.result || '')); setSwotError(''); };
+                reader.onerror = () => setSwotError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
             const openSettings = () => {
                 setTempUrls(urls);
                 setIsSettingsOpen(true);
@@ -593,8 +763,8 @@
                     <div className="relative flex flex-col items-center mb-12">
                         <div 
                         className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-indigo-500 overflow-hidden hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
-                        onClick={() => handleAnalysisClick('5forces')}
-                        title="詳細ページへ移動"
+                        onClick={() => { setForcesModal(forcesResult ? 'result' : 'menu'); setForcesError(''); }}
+                        title="クリックしてメニューを開く"
                         >
                         <div className="p-6">
                             <div className="flex justify-between items-center mb-2">
@@ -602,7 +772,14 @@
                                 5フォース分析
                                 <span className="text-xs font-normal text-indigo-400 border border-indigo-200 rounded px-1">Click to Open</span>
                             </h2>
-                            <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2 py-1 rounded">業界の収益性</span>
+                            <div className="flex items-center gap-2">
+                                {forcesResult ? (
+                                    <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済 {String(forcesResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                ) : (
+                                    <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                )}
+                                <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2 py-1 rounded">業界の収益性</span>
+                            </div>
                             </div>
                             <p className="text-slate-600 mb-4">その業界は儲かるか？敵はどこにいるか？（業界の脅威）</p>
                             <div className="mb-3"><PromptButton onClick={() => openPrompt('5forces')} /></div>
@@ -613,6 +790,9 @@
                             <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">買い手の力</span>
                             <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">売り手の力</span>
                             </div>
+                            {forcesResult && forcesResult.summary && (
+                                <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{forcesResult.summary}</p>
+                            )}
                         </div>
                         </div>
                     </div>
@@ -633,15 +813,22 @@
                         
                         <div 
                         className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-emerald-500 overflow-hidden hover:shadow-xl transition-shadow p-6 cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
-                        onClick={() => handleAnalysisClick('3c')}
-                        title="詳細ページへ移動"
+                        onClick={() => { setThreecModal(threecResult ? 'result' : 'menu'); setThreecError(''); }}
+                        title="クリックしてメニューを開く"
                         >
                         <div className="flex justify-between items-center mb-4 relative z-20">
                             <h2 className="text-2xl font-bold text-emerald-800 flex items-center gap-2">
                                 3C分析
                                 <span className="text-xs font-normal text-emerald-400 border border-emerald-200 rounded px-1">Click to Open</span>
                             </h2>
-                            <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2 py-1 rounded">成功要因(KSF)</span>
+                            <div className="flex items-center gap-2">
+                                {threecResult ? (
+                                    <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済 {String(threecResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                ) : (
+                                    <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                )}
+                                <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2 py-1 rounded">成功要因(KSF)</span>
+                            </div>
                         </div>
                         <div className="mb-3 relative z-20"><PromptButton onClick={() => openPrompt('3c')} /></div>
                         
@@ -679,6 +866,9 @@
                                 </div>
                             </div>
                         </div>
+                        {threecResult && threecResult.summary && (
+                            <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2 relative z-20">{threecResult.summary}</p>
+                        )}
                         </div>
                     </div>
 
@@ -688,13 +878,17 @@
                         {/* SWOT */}
                         <div 
                         className="flex-1 bg-white rounded-xl shadow-md border-t-8 border-teal-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                        onClick={() => handleAnalysisClick('swot')}
-                        title="詳細ページへ移動"
+                        onClick={() => { setSwotModal(swotResult ? 'result' : 'menu'); setSwotError(''); }}
+                        title="クリックしてメニューを開く"
                         >
                         <div className="flex items-center gap-2 mb-3">
                             <IconActivity size={24} className="text-teal-600" />
                             <h2 className="text-xl font-bold text-slate-800">クロスSWOT分析</h2>
-                            <span className="text-[10px] font-normal text-teal-400 border border-teal-200 rounded px-1 ml-auto">Click</span>
+                            {swotResult ? (
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded ml-auto">✓ {String(swotResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                            ) : (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded ml-auto">未取込</span>
+                            )}
                         </div>
                         <p className="text-sm text-slate-600 mb-4">「強み×機会」で攻めるか、「弱み×脅威」で守るか。具体的な勝ち筋を見つける。</p>
                         <div className="mb-3"><PromptButton onClick={() => openPrompt('swot')} /></div>
@@ -704,6 +898,9 @@
                             <div className="bg-teal-600 p-2 rounded">機会 (O)</div>
                             <div className="bg-teal-600 p-2 rounded">脅威 (T)</div>
                         </div>
+                        {swotResult && swotResult.summary && (
+                            <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{swotResult.summary}</p>
+                        )}
                         </div>
 
                         {/* Basic Strategy */}
@@ -1136,6 +1333,457 @@
                                                 >
                                                     閉じる
                                                 </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 5フォース 詳細モーダル */}
+                {forcesModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setForcesModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-indigo-800 flex items-center gap-2">
+                                    <IconShieldAlert size={20} />
+                                    5フォース分析
+                                    {forcesResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setForcesModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {forcesModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('5forces')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm">
+                                            <IconShieldAlert size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setForcesModal('import'); setForcesError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {forcesResult && (
+                                            <button onClick={() => setForcesModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {forcesModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={forcesText}
+                                            onChange={(e) => { setForcesText(e.target.value); setForcesError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "5forces", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                                        {forcesError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{forcesError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleForcesFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setForcesModal(forcesResult ? 'result' : 'menu'); setForcesError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importForces} disabled={!forcesText.trim()}
+                                                    className="px-6 py-2 bg-indigo-600 text-white font-bold hover:bg-indigo-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー */}
+                                {forcesModal === 'result' && forcesResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{forcesResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{forcesResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{forcesResult.summary}</p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {[
+                                                ['rivalry', '競合他社との敵対'],
+                                                ['newEntrants', '新規参入の脅威'],
+                                                ['substitutes', '代替品の脅威'],
+                                                ['buyers', '買い手の交渉力'],
+                                                ['suppliers', '売り手の交渉力'],
+                                            ].map(([key, label]) => {
+                                                const f = forcesResult.data[key] || {};
+                                                const level = f.level;
+                                                const factors = Array.isArray(f.factors) ? f.factors : [];
+                                                const badge = level === '高'
+                                                    ? 'bg-rose-100 text-rose-700'
+                                                    : level === '中'
+                                                    ? 'bg-amber-100 text-amber-700'
+                                                    : level === '低'
+                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                    : 'bg-slate-100 text-slate-500';
+                                                return (
+                                                    <div key={key} className="border border-slate-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-indigo-50 px-3 py-1.5 flex items-center justify-between">
+                                                            <span className="text-sm font-bold text-indigo-800">{label}</span>
+                                                            {level && <span className={"text-xs font-bold px-2 py-0.5 rounded " + badge}>脅威 {level}</span>}
+                                                        </div>
+                                                        {factors.length === 0 ? (
+                                                            <div className="px-3 py-2 text-xs text-slate-400">（要因の記載なし）</div>
+                                                        ) : (
+                                                            <ul className="px-3 py-2 space-y-1">
+                                                                {factors.map((fa, i) => (
+                                                                    <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                                        <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full mt-1.5 shrink-0"></span>
+                                                                        <span>{fa}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {forcesResult.data.overall && (
+                                            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                                                <div className="text-xs font-bold text-indigo-700 mb-1">業界収益性の総評</div>
+                                                <p className="text-sm text-slate-700">{forcesResult.data.overall}</p>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteForces}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setForcesText(''); setForcesError(''); setForcesModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setForcesModal(null)}
+                                                    className="px-6 py-2 bg-indigo-600 text-white font-bold hover:bg-indigo-700 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 3C 詳細モーダル */}
+                {threecModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setThreecModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-emerald-800 flex items-center gap-2">
+                                    <IconTarget size={20} />
+                                    3C分析
+                                    {threecResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setThreecModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {threecModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('3c')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors text-sm">
+                                            <IconTarget size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setThreecModal('import'); setThreecError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {threecResult && (
+                                            <button onClick={() => setThreecModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {threecModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={threecText}
+                                            onChange={(e) => { setThreecText(e.target.value); setThreecError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "3c", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                                        {threecError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{threecError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleThreecFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setThreecModal(threecResult ? 'result' : 'menu'); setThreecError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importThreec} disabled={!threecText.trim()}
+                                                    className="px-6 py-2 bg-emerald-600 text-white font-bold hover:bg-emerald-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー */}
+                                {threecModal === 'result' && threecResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{threecResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{threecResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{threecResult.summary}</p>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                            {[
+                                                ['customer', '顧客・市場', 'Customer'],
+                                                ['competitor', '競合', 'Competitor'],
+                                                ['company', '自社', 'Company'],
+                                            ].map(([key, label, en]) => {
+                                                const items = Array.isArray(threecResult.data[key]) ? threecResult.data[key] : [];
+                                                return (
+                                                    <div key={key} className="border border-emerald-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-emerald-50 px-3 py-1.5">
+                                                            <div className="text-sm font-bold text-emerald-800">{label}</div>
+                                                            <div className="text-[10px] text-emerald-500">{en}</div>
+                                                        </div>
+                                                        {items.length === 0 ? (
+                                                            <div className="px-3 py-2 text-xs text-slate-400">（記載なし）</div>
+                                                        ) : (
+                                                            <ul className="px-3 py-2 space-y-1">
+                                                                {items.map((it, i) => (
+                                                                    <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full mt-1.5 shrink-0"></span>
+                                                                        <span>{it}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {Array.isArray(threecResult.data.ksf) && threecResult.data.ksf.length > 0 && (
+                                            <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4">
+                                                <div className="text-sm font-bold text-amber-800 mb-2 flex items-center gap-1">
+                                                    ⭐ 成功要因（KSF）
+                                                </div>
+                                                <ul className="space-y-1">
+                                                    {threecResult.data.ksf.map((k, i) => (
+                                                        <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                            <span className="w-1.5 h-1.5 bg-amber-500 rounded-full mt-1.5 shrink-0"></span>
+                                                            <span>{k}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteThreec}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setThreecText(''); setThreecError(''); setThreecModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setThreecModal(null)}
+                                                    className="px-6 py-2 bg-emerald-600 text-white font-bold hover:bg-emerald-700 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* SWOT 詳細モーダル */}
+                {swotModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setSwotModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-teal-700 flex items-center gap-2">
+                                    <IconActivity size={20} />
+                                    クロスSWOT分析
+                                    {swotResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setSwotModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {swotModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('swot')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 transition-colors text-sm">
+                                            <IconActivity size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setSwotModal('import'); setSwotError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {swotResult && (
+                                            <button onClick={() => setSwotModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {swotModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={swotText}
+                                            onChange={(e) => { setSwotText(e.target.value); setSwotError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "swot", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                                        {swotError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{swotError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleSwotFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setSwotModal(swotResult ? 'result' : 'menu'); setSwotError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importSwot} disabled={!swotText.trim()}
+                                                    className="px-6 py-2 bg-teal-600 text-white font-bold hover:bg-teal-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー */}
+                                {swotModal === 'result' && swotResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{swotResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{swotResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{swotResult.summary}</p>
+                                        </div>
+
+                                        {/* SWOT 4象限 */}
+                                        <div>
+                                            <div className="text-xs font-bold text-slate-400 mb-2">現状分析（SWOT）</div>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {[
+                                                    ['strengths', '強み (S)', 'bg-teal-50 border-teal-200 text-teal-800', 'bg-teal-400'],
+                                                    ['weaknesses', '弱み (W)', 'bg-orange-50 border-orange-200 text-orange-800', 'bg-orange-400'],
+                                                    ['opportunities', '機会 (O)', 'bg-sky-50 border-sky-200 text-sky-800', 'bg-sky-400'],
+                                                    ['threats', '脅威 (T)', 'bg-rose-50 border-rose-200 text-rose-800', 'bg-rose-400'],
+                                                ].map(([key, label, cls, dot]) => {
+                                                    const items = Array.isArray(swotResult.data[key]) ? swotResult.data[key] : [];
+                                                    return (
+                                                        <div key={key} className={"border rounded-lg overflow-hidden " + cls.split(' ').slice(1).join(' ')}>
+                                                            <div className={"px-3 py-1.5 text-sm font-bold " + cls}>{label}</div>
+                                                            {items.length === 0 ? (
+                                                                <div className="px-3 py-2 text-xs text-slate-400">（記載なし）</div>
+                                                            ) : (
+                                                                <ul className="px-3 py-2 space-y-1 bg-white">
+                                                                    {items.map((it, i) => (
+                                                                        <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                                            <span className={"w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 " + dot}></span>
+                                                                            <span>{it}</span>
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {/* クロスSWOT 4象限 */}
+                                        {swotResult.data.cross && (
+                                            <div>
+                                                <div className="text-xs font-bold text-slate-400 mb-2">クロス分析（打ち手）</div>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                    {[
+                                                        ['so', 'SO（積極化）強み×機会'],
+                                                        ['wo', 'WO（改善）弱み×機会'],
+                                                        ['st', 'ST（差別化）強み×脅威'],
+                                                        ['wt', 'WT（防衛/撤退）弱み×脅威'],
+                                                    ].map(([key, label]) => {
+                                                        const items = Array.isArray(swotResult.data.cross[key]) ? swotResult.data.cross[key] : [];
+                                                        return (
+                                                            <div key={key} className="border border-slate-200 rounded-lg overflow-hidden">
+                                                                <div className="bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-700">{label}</div>
+                                                                {items.length === 0 ? (
+                                                                    <div className="px-3 py-2 text-xs text-slate-400">（記載なし）</div>
+                                                                ) : (
+                                                                    <ul className="px-3 py-2 space-y-1">
+                                                                        {items.map((it, i) => (
+                                                                            <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                                                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full mt-1.5 shrink-0"></span>
+                                                                                <span>{it}</span>
+                                                                            </li>
+                                                                        ))}
+                                                                    </ul>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteSwot}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setSwotText(''); setSwotError(''); setSwotModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setSwotModal(null)}
+                                                    className="px-6 py-2 bg-teal-600 text-white font-bold hover:bg-teal-700 rounded shadow-sm text-sm">閉じる</button>
                                             </div>
                                         </div>
                                     </div>
