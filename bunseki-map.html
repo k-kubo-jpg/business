@@ -1,0 +1,1251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ビジネスフレームワーク統合マップ</title>
+    
+    <!-- React & ReactDOM（バージョン固定） -->
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel（JSX変換 / v8はimportを自動挿入し白画面になるため7系最新に固定） -->
+    <script src="https://unpkg.com/@babel/standalone@7.29.7/babel.min.js"></script>
+    
+    <!-- Tailwind CSS（バージョン固定） -->
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+
+    <style>
+        /* スムーズスクロール用 */
+        html {
+            scroll-behavior: smooth;
+        }
+        /* カスタムスクロールバー（オプション） */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="bg-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- PESTEL結果の保存キー（既存のframeworkUrlsとは別領域） ---
+        const RESULT_STORAGE_KEY = 'bunsekiMap_v1';
+        const BASIC_INFO_KEY = 'bunsekiMap_basicInfo_v1';
+
+        // 基本情報の初期値
+        const EMPTY_BASIC = { subject:'', industry:'', location:'', size:'', business:'', issues:'', memo:'' };
+
+        function loadBasicInfo() {
+            try {
+                const raw = localStorage.getItem(BASIC_INFO_KEY);
+                return raw ? { ...EMPTY_BASIC, ...JSON.parse(raw) } : { ...EMPTY_BASIC };
+            } catch (e) { console.warn('基本情報の読み込みに失敗:', e); return { ...EMPTY_BASIC }; }
+        }
+
+        // 分析メタ（名称・framework）
+        const ANALYSIS_META = {
+            pestel:   { name: 'PESTEL分析' },
+            '5forces':{ name: '5フォース分析' },
+            '3c':     { name: '3C分析' },
+            swot:     { name: 'クロスSWOT分析' },
+            strategy: { name: '基本競争戦略' },
+            bmc:      { name: 'ビジネスモデルキャンバス' },
+            '4p':     { name: '4P分析' },
+            '7s':     { name: '7S分析' },
+        };
+
+        // 各frameworkのdataスキーマ例（プロンプト末尾に貼る・仕様書§5.2と同一ソース）
+        const SCHEMA_EXAMPLES = {
+            pestel: `{
+  "schemaVersion": "1.0", "framework": "pestel", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "PESTEL分析全体の要約を1〜2文",
+  "data": {
+    "politics":    [ { "item": "政治的要因", "type": "機会", "note": "" } ],
+    "economy":     [ { "item": "経済的要因", "type": "脅威", "note": "" } ],
+    "society":     [ { "item": "社会的要因", "type": "中立", "note": "" } ],
+    "technology":  [ { "item": "技術的要因", "type": "機会", "note": "" } ],
+    "environment": [ { "item": "環境的要因", "type": "中立", "note": "" } ],
+    "legal":       [ { "item": "法的要因",   "type": "脅威", "note": "" } ]
+  }
+}`,
+            '5forces': `{
+  "schemaVersion": "1.0", "framework": "5forces", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "5フォース分析全体の要約を1〜2文",
+  "data": {
+    "rivalry":     { "level": "高", "factors": ["根拠"] },
+    "newEntrants": { "level": "中", "factors": ["根拠"] },
+    "substitutes": { "level": "中", "factors": ["根拠"] },
+    "buyers":      { "level": "低", "factors": ["根拠"] },
+    "suppliers":   { "level": "低", "factors": ["根拠"] },
+    "overall":     "業界収益性の総評（1〜2文）"
+  }
+}`,
+            '3c': `{
+  "schemaVersion": "1.0", "framework": "3c", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "3C分析全体の要約を1〜2文",
+  "data": {
+    "customer":   ["顧客・市場に関する発見"],
+    "competitor": ["競合に関する発見"],
+    "company":    ["自社に関する発見"],
+    "ksf":        ["導出した成功要因"]
+  }
+}`,
+            swot: `{
+  "schemaVersion": "1.0", "framework": "swot", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "クロスSWOT分析全体の要約を1〜2文",
+  "data": {
+    "strengths": ["強み"], "weaknesses": ["弱み"],
+    "opportunities": ["機会"], "threats": ["脅威"],
+    "cross": {
+      "so": ["強み×機会の打ち手"], "wo": ["弱み×機会の打ち手"],
+      "st": ["強み×脅威の打ち手"], "wt": ["弱み×脅威の打ち手"]
+    }
+  }
+}`,
+            strategy: `{
+  "schemaVersion": "1.0", "framework": "strategy", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "基本競争戦略の結論を1〜2文",
+  "data": {
+    "position":  "差別化",
+    "rationale": "選定理由（1〜2文）",
+    "actions":   ["具体アクション"]
+  }
+}`,
+            bmc: `{
+  "schemaVersion": "1.0", "framework": "bmc", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "ビジネスモデル全体の要約を1〜2文",
+  "data": {
+    "kp": ["パートナー"], "ka": ["主要活動"], "kr": ["リソース"],
+    "vp": ["価値提案"], "cr": ["顧客との関係"], "ch": ["チャネル"],
+    "cs": ["顧客セグメント"], "cost": ["コスト構造"], "revenue": ["収益の流れ"]
+  }
+}`,
+            '4p': `{
+  "schemaVersion": "1.0", "framework": "4p", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "4P分析全体の要約を1〜2文",
+  "data": {
+    "product":   ["製品・サービスの戦術"],
+    "price":     ["価格の戦術"],
+    "place":     ["流通・場所の戦術"],
+    "promotion": ["販促・広告の戦術"]
+  }
+}`,
+            '7s': `{
+  "schemaVersion": "1.0", "framework": "7s", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "7S分析全体の要約を1〜2文",
+  "data": {
+    "strategy":     { "current": "現状", "issue": "課題" },
+    "structure":    { "current": "現状", "issue": "課題" },
+    "systems":      { "current": "現状", "issue": "課題" },
+    "sharedValues": { "current": "現状", "issue": "課題" },
+    "skills":       { "current": "現状", "issue": "課題" },
+    "staff":        { "current": "現状", "issue": "課題" },
+    "style":        { "current": "現状", "issue": "課題" },
+    "alignment":    "整合性の総評（1〜2文）"
+  }
+}`,
+        };
+
+        // 既存の分析結果から、後続分析へ引き継ぐ材料を箇条書きテキストに整形する。
+        // 引き継ぎ元が増える（結果ビューを実装する）たびに、ここに1ブロック足すだけで
+        // 後続プロンプトが自動的に充実する設計。
+        function buildContextBlock(targetId, results) {
+            const lines = [];
+            const pestel = results['pestel'];
+            // PESTEL → 5forces / 3c / swot に機会・脅威を引き継ぐ
+            if (pestel && ['5forces', '3c', 'swot'].includes(targetId)) {
+                const picks = [];
+                ['politics','economy','society','technology','environment','legal'].forEach(k => {
+                    (pestel.data[k] || []).forEach(it => {
+                        if (it && (it.type === '機会' || it.type === '脅威')) {
+                            picks.push(`  ${it.type}: ${it.item}`);
+                        }
+                    });
+                });
+                if (pestel.summary) picks.unshift(`  総括: ${pestel.summary}`);
+                if (picks.length) {
+                    lines.push(`■ PESTEL分析（${pestel.analyzedAt || ''} 実施）の機会・脅威`);
+                    lines.push(...picks);
+                }
+            }
+            // ※ 後続分析（3C/SWOT等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
+            return lines.join('\n');
+        }
+
+        // 分析用プロンプトを生成（基本情報＋引き継ぎ材料＋出力ルール＋スキーマ）
+        function buildPrompt(analysisId, basicInfo, results) {
+            const meta = ANALYSIS_META[analysisId] || { name: analysisId };
+            const bi = basicInfo || EMPTY_BASIC;
+            const infoLines = [];
+            if (bi.subject)  infoLines.push(`会社名: ${bi.subject}`);
+            if (bi.industry) infoLines.push(`業種: ${bi.industry}`);
+            if (bi.location) infoLines.push(`所在地: ${bi.location}`);
+            if (bi.size)     infoLines.push(`規模: ${bi.size}`);
+            if (bi.business) infoLines.push(`事業内容: ${bi.business}`);
+            if (bi.issues)   infoLines.push(`現状の課題: ${bi.issues}`);
+            if (bi.memo)     infoLines.push(`補足メモ: ${bi.memo}`);
+
+            const ctx = buildContextBlock(analysisId, results);
+            const schema = (SCHEMA_EXAMPLES[analysisId] || '{}').replace(/\{subject\}/g, bi.subject || '（会社名）');
+
+            let p = `以下の企業について${meta.name}を行います。対話形式で私に質問しながら分析を深めてください。\n\n`;
+            p += `【基本情報】\n${infoLines.join('\n')}\n\n`;
+            if (ctx) p += `【これまでの分析結果（参考にしてください）】\n${ctx}\n\n`;
+            p += `【結果出力ルール】\n`;
+            p += `分析がまとまった後、私が「JSON出力」と入力したら、結果を以下のJSON形式で出力してください。\n`;
+            p += `- 出力はJSONオブジェクト1個のみ。前後に説明・見出し・補足を書かない\n`;
+            p += `- 下記の項目をすべて含める。該当が無い項目も省略せず空配列[]または空文字""を入れる\n`;
+            p += `- スキーマに無いキーを追加しない。キーは英語小文字、値は日本語\n`;
+            p += `- "framework"は"${analysisId}"、"subject"は"${bi.subject || '（会社名）'}"、"analyzedAt"は今日の日付(YYYY-MM-DD)\n\n`;
+            p += schema;
+            return p;
+        }
+
+        // 保存済み結果の読み込み（try/catchでガード）
+        function loadResults() {
+            try {
+                const raw = localStorage.getItem(RESULT_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                console.warn('結果の読み込みに失敗:', e);
+                return {};
+            }
+        }
+
+        // 貼り付けテキストをPESTELスキーマとして検証（アプリは落とさない）
+        function parsePestelJson(text) {
+            const clean = String(text).replace(/```json|```/g, '').trim();
+            let obj;
+            try {
+                obj = JSON.parse(clean);
+            } catch (e) {
+                return { ok: false, error: 'JSONとして読み取れませんでした。テキストが正しくコピーされているか確認してください。' };
+            }
+            if (!obj || typeof obj !== 'object') {
+                return { ok: false, error: 'JSONオブジェクトではありません。' };
+            }
+            if (obj.framework !== 'pestel') {
+                return { ok: false, error: 'これはPESTEL分析の結果ではありません（framework: ' + (obj.framework || '不明') + '）。' };
+            }
+            if (!obj.data || typeof obj.data !== 'object') {
+                return { ok: false, error: 'data項目がありません。' };
+            }
+            return { ok: true, value: obj };
+        }
+
+        // --- アイコンコンポーネント (Lucide Icons SVG) ---
+        const IconGlobe = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><line x1="2" x2="22" y1="12" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        );
+        const IconTarget = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+        );
+        const IconUsers = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        );
+        const IconZap = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        );
+        const IconBriefcase = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="20" height="14" x="2" y="7" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+        );
+        const IconShoppingCart = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+        );
+        const IconLayers = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        );
+        const IconSearch = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        );
+        const IconBarChart2 = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg>
+        );
+        const IconShieldAlert = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
+        );
+        const IconActivity = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        );
+        const IconLayoutTemplate = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><rect width="7" height="7" x="7" y="7"/><rect width="7" height="3" x="14" y="7"/><rect width="7" height="3" x="14" y="14"/><rect width="3" height="7" x="7" y="14"/></svg>
+        );
+        const IconSettings = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        );
+        const IconX = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        );
+        const IconClipboard = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+        );
+
+        // カード内に重ねるプロンプトコピー小ボタン（カード本体クリックを止める）
+        const PromptButton = ({ onClick }) => (
+            <button
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-blue-100 hover:text-blue-700 border border-slate-200 rounded px-2 py-1 transition-colors"
+                title="基本情報と既存の分析結果を含む分析用プロンプトをコピー"
+            >
+                <IconClipboard size={13} /> プロンプト
+            </button>
+        );
+
+        // --- メインコンポーネント ---
+        const FrameworkInfographic = () => {
+
+            // デフォルトのURL設定
+            const defaultUrls = {
+                'pestel': 'https://gemini.google.com/share/d/1Cs9QxlYhkAhQONgU0jnhmnx3ZT7Pybun?usp=sharing',
+                '5forces': 'https://gemini.google.com/gem/17tiRGiZ-v4gmuow6AaokEcYF2Ibjvjeb?usp=sharing',
+                '3c': 'https://gemini.google.com/gem/1_wBpTrCnfE_SE4g0ybVaUYwn8uQAB-OQ?usp=sharing',
+                'swot': 'https://gemini.google.com/gem/24c503930c1f?usp=sharing',
+                'strategy': 'https://gemini.google.com/gem/1rYkFAsrYahbH_653HBPOD4HASfkC4PqP?usp=sharing',
+                'bmc': '', 
+                '4p': 'https://gemini.google.com/gem/19bywqVRuo7ePtNhp-kaw_smOokDIUhN8?usp=sharing',
+                '7s': 'https://gemini.google.com/gem/1-9Zgr80eDZGxQ6iq4-pIErkMeAb-gMnV?usp=sharing'
+            };
+
+            // 状態管理
+            const [urls, setUrls] = useState(defaultUrls);
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [tempUrls, setTempUrls] = useState(defaultUrls);
+
+            // --- PESTEL段階導入用の状態 ---
+            const [results, setResults] = useState({});          // { pestel: エンベロープ全体, ... }
+            const [pestelModal, setPestelModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [importText, setImportText] = useState('');     // 取込テキストエリアの内容
+            const [importError, setImportError] = useState('');   // 取込エラー表示
+            const [toast, setToast] = useState('');               // 成功トースト
+
+            const pestelResult = results['pestel'] || null;
+
+            // --- 基本情報・プロンプト生成用の状態 ---
+            const [basicInfo, setBasicInfo] = useState({ ...EMPTY_BASIC });
+            const [isBasicOpen, setIsBasicOpen] = useState(false);
+            const [tempBasic, setTempBasic] = useState({ ...EMPTY_BASIC });
+            const [promptModal, setPromptModal] = useState(null); // null | { id, text }
+
+            const basicRegistered = !!(basicInfo.subject && basicInfo.subject.trim());
+
+            // 初期ロード時にローカルストレージから読み込み
+            useEffect(() => {
+                const savedUrls = localStorage.getItem('frameworkUrls');
+                if (savedUrls) {
+                    try {
+                        const parsedUrls = JSON.parse(savedUrls);
+                        setUrls({ ...defaultUrls, ...parsedUrls });
+                    } catch(e) {
+                        console.error('Failed to parse URLs', e);
+                    }
+                }
+                // PESTEL等の分析結果を読み込み
+                setResults(loadResults());
+                // 基本情報を読み込み
+                setBasicInfo(loadBasicInfo());
+            }, []);
+
+            // --- 基本情報: 保存 ---
+            const openBasic = () => { setTempBasic({ ...basicInfo }); setIsBasicOpen(true); };
+            const saveBasic = () => {
+                setBasicInfo(tempBasic);
+                try { localStorage.setItem(BASIC_INFO_KEY, JSON.stringify(tempBasic)); }
+                catch (e) { console.warn('基本情報の保存に失敗:', e); }
+                setIsBasicOpen(false);
+                setToast('基本情報を保存しました');
+            };
+            const handleBasicChange = (k, v) => setTempBasic(prev => ({ ...prev, [k]: v }));
+
+            // --- プロンプト生成＆コピー ---
+            const openPrompt = (analysisId) => {
+                if (!basicRegistered) {
+                    setToast('先に基本情報を登録してください');
+                    openBasic();
+                    return;
+                }
+                const text = buildPrompt(analysisId, basicInfo, results);
+                setPromptModal({ id: analysisId, text });
+            };
+            const copyPrompt = async () => {
+                if (!promptModal) return;
+                try {
+                    await navigator.clipboard.writeText(promptModal.text);
+                    setToast('プロンプトをコピーしました');
+                } catch (e) {
+                    // iframe等でclipboard APIが失敗した場合は手動コピーを促す
+                    setToast('自動コピーに失敗。テキストを選択してコピーしてください');
+                }
+            };
+
+            // トーストの自動消去
+            useEffect(() => {
+                if (!toast) return;
+                const t = setTimeout(() => setToast(''), 2500);
+                return () => clearTimeout(t);
+            }, [toast]);
+
+            // --- PESTEL: 取込確定 ---
+            const importPestel = () => {
+                const res = parsePestelJson(importText);
+                if (!res.ok) {
+                    setImportError(res.error);
+                    return;
+                }
+                const next = { ...results, pestel: res.value };
+                setResults(next);
+                try {
+                    localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next));
+                } catch (e) {
+                    console.warn('結果の保存に失敗:', e);
+                }
+                setImportError('');
+                setImportText('');
+                setToast('PESTEL分析を取り込みました');
+                setPestelModal('result');
+            };
+
+            // --- PESTEL: 結果削除 ---
+            const deletePestel = () => {
+                if (!window.confirm('PESTEL分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['pestel'];
+                setResults(next);
+                try {
+                    localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next));
+                } catch (e) {
+                    console.warn('結果の保存に失敗:', e);
+                }
+                setPestelModal('menu');
+            };
+
+            // --- PESTEL: ファイル読込 ---
+            const handlePestelFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    setImportText(String(reader.result || ''));
+                    setImportError('');
+                };
+                reader.onerror = () => setImportError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // 設定モーダルを開く
+            const openSettings = () => {
+                setTempUrls(urls);
+                setIsSettingsOpen(true);
+            };
+
+            // 設定を保存する
+            const saveSettings = () => {
+                setUrls(tempUrls);
+                localStorage.setItem('frameworkUrls', JSON.stringify(tempUrls));
+                setIsSettingsOpen(false);
+            };
+
+            // URL入力ハンドラ
+            const handleUrlChange = (id, value) => {
+                setTempUrls(prev => ({...prev, [id]: value}));
+            };
+
+            // 設定モーダル用のラベル
+            const urlLabels = {
+                'pestel': 'PESTEL分析',
+                '5forces': '5フォース分析',
+                '3c': '3C分析',
+                'swot': 'クロスSWOT分析',
+                'strategy': '基本競争戦略',
+                'bmc': 'ビジネスモデルキャンバス',
+                '4p': '4P分析',
+                '7s': '7S分析'
+            };
+
+            // スクロール機能（フッター用）
+            const scrollToSection = (id) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            };
+
+            // 外部リンク遷移機能（各分析カード用）
+            const handleAnalysisClick = (analysisId) => {
+                const targetUrl = urls[analysisId];
+                if (targetUrl) {
+                    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+                } else {
+                    alert('リンクURLが設定されていません。右上の設定ボタンから登録してください。');
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800 relative">
+                
+                {/* Header */}
+                <header className="max-w-4xl mx-auto text-center mb-10 relative">
+                    <button 
+                        onClick={openSettings}
+                        className="absolute right-0 top-0 p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded-lg transition-colors flex flex-col items-center gap-1"
+                        title="リンク設定"
+                    >
+                        <IconSettings size={24} />
+                        <span className="text-[10px] font-bold">設定</span>
+                    </button>
+
+                    <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 leading-tight">
+                    ビジネスフレームワーク<br />統合マップ
+                    </h1>
+                    <p className="text-lg text-slate-600 mb-3">
+                    環境分析から戦略実行までの全体フロー
+                    </p>
+                    <p className="text-sm text-slate-500 bg-white inline-block px-4 py-1.5 rounded-full shadow-sm border border-slate-200">
+                        👆 各分析をクリックするとテンプレート（Geminiチャット）が開きます／PESTELは分析メニューが開きます
+                    </p>
+                </header>
+
+                {/* 基本情報カード */}
+                <div className="max-w-3xl mx-auto mb-8">
+                    {basicRegistered ? (
+                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                                <div className="text-xs text-slate-400 font-bold mb-0.5">分析対象</div>
+                                <div className="text-slate-800 font-bold truncate">{basicInfo.subject}</div>
+                                <div className="text-xs text-slate-500 truncate">{[basicInfo.industry, basicInfo.business].filter(Boolean).join(' / ')}</div>
+                            </div>
+                            <button onClick={openBasic} className="shrink-0 px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                基本情報を編集
+                            </button>
+                        </div>
+                    ) : (
+                        <button onClick={openBasic} className="w-full bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-center gap-2 text-amber-700 font-bold hover:bg-amber-100 transition-colors text-sm">
+                            <IconShieldAlert size={18} /> 基本情報が未登録です — クリックして登録
+                        </button>
+                    )}
+                </div>
+
+                <div className="max-w-5xl mx-auto">
+                    
+                    {/* PHASE 1: MACRO & INDUSTRY */}
+                    {/* IDを追加: 状況把握のリンク先 */}
+                    <div id="phase-analysis" className="relative mb-12 scroll-mt-8">
+                    <div className="absolute left-1/2 -ml-0.5 w-0.5 h-full bg-slate-300 hidden md:block" aria-hidden="true"></div>
+                    
+                    {/* Step 1: PESTEL */}
+                    <div className="relative flex flex-col items-center mb-12 group">
+                        <div className="z-10 bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg mb-4 flex items-center gap-2">
+                        <IconGlobe size={20} />
+                        Phase 1: 環境を知る（マクロ）
+                        </div>
+                        <div 
+                        className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-blue-500 overflow-hidden hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
+                        onClick={() => { setPestelModal(pestelResult ? 'result' : 'menu'); setImportError(''); }}
+                        title="クリックしてメニューを開く"
+                        >
+                        <div className="p-6">
+                            <div className="flex justify-between items-center mb-2">
+                            <h2 className="text-2xl font-bold text-blue-800 flex items-center gap-2">
+                                PESTEL分析
+                                <span className="text-xs font-normal text-blue-400 border border-blue-200 rounded px-1">Click to Open</span>
+                            </h2>
+                            <div className="flex items-center gap-2">
+                                {pestelResult ? (
+                                    <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済 {String(pestelResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                ) : (
+                                    <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                )}
+                                <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2 py-1 rounded">世の中のトレンド</span>
+                            </div>
+                            </div>
+                            <p className="text-slate-600 mb-4">自社ではコントロールできない「世の中の大きな変化」を分析する</p>
+                            <div className="mb-3"><PromptButton onClick={() => openPrompt('pestel')} /></div>
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-center text-sm font-semibold text-slate-700">
+                            <div className="bg-slate-100 p-2 rounded">P:政治</div>
+                            <div className="bg-slate-100 p-2 rounded">E:経済</div>
+                            <div className="bg-slate-100 p-2 rounded">S:社会</div>
+                            <div className="bg-slate-100 p-2 rounded">T:技術</div>
+                            <div className="bg-slate-100 p-2 rounded">E:環境</div>
+                            <div className="bg-slate-100 p-2 rounded">L:法律</div>
+                            </div>
+                            {pestelResult && pestelResult.summary && (
+                                <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{pestelResult.summary}</p>
+                            )}
+                        </div>
+                        </div>
+                    </div>
+
+                    {/* Step 2: 5 Forces */}
+                    <div className="relative flex flex-col items-center mb-12">
+                        <div 
+                        className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-indigo-500 overflow-hidden hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
+                        onClick={() => handleAnalysisClick('5forces')}
+                        title="詳細ページへ移動"
+                        >
+                        <div className="p-6">
+                            <div className="flex justify-between items-center mb-2">
+                            <h2 className="text-2xl font-bold text-indigo-800 flex items-center gap-2">
+                                5フォース分析
+                                <span className="text-xs font-normal text-indigo-400 border border-indigo-200 rounded px-1">Click to Open</span>
+                            </h2>
+                            <span className="text-xs font-semibold bg-indigo-100 text-indigo-800 px-2 py-1 rounded">業界の収益性</span>
+                            </div>
+                            <p className="text-slate-600 mb-4">その業界は儲かるか？敵はどこにいるか？（業界の脅威）</p>
+                            <div className="mb-3"><PromptButton onClick={() => openPrompt('5forces')} /></div>
+                            <div className="flex flex-wrap justify-center gap-3">
+                            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">競合他社</span>
+                            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">新規参入</span>
+                            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">代替品</span>
+                            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">買い手の力</span>
+                            <span className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm border border-indigo-200">売り手の力</span>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    </div>
+
+                    {/* PHASE 2: STRATEGY */}
+                    {/* IDを追加: 戦略立案のリンク先 */}
+                    <div id="phase-strategy" className="relative mb-12 scroll-mt-8">
+                    <div className="absolute left-1/2 -ml-0.5 w-0.5 h-full bg-slate-300 hidden md:block" aria-hidden="true"></div>
+                    
+                    {/* Step 3: 3C Analysis */}
+                    <div className="relative flex flex-col items-center mb-12">
+                        <div className="z-10 bg-emerald-600 text-white px-6 py-2 rounded-full font-bold shadow-lg mb-4 flex items-center gap-2">
+                        <IconTarget size={20} />
+                        Phase 2: 方向性を決める（戦略）
+                        </div>
+                        
+                        <div 
+                        className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-emerald-500 overflow-hidden hover:shadow-xl transition-shadow p-6 cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
+                        onClick={() => handleAnalysisClick('3c')}
+                        title="詳細ページへ移動"
+                        >
+                        <div className="flex justify-between items-center mb-4 relative z-20">
+                            <h2 className="text-2xl font-bold text-emerald-800 flex items-center gap-2">
+                                3C分析
+                                <span className="text-xs font-normal text-emerald-400 border border-emerald-200 rounded px-1">Click to Open</span>
+                            </h2>
+                            <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2 py-1 rounded">成功要因(KSF)</span>
+                        </div>
+                        <div className="mb-3 relative z-20"><PromptButton onClick={() => openPrompt('3c')} /></div>
+                        
+                        {/* 3C Triangle Layout */}
+                        <div className="flex flex-col items-center relative py-4">
+                            
+                            {/* Background Triangle SVG */}
+                            <svg className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-80 h-64 pointer-events-none z-0 opacity-20" viewBox="0 0 200 160">
+                                <path d="M100 20 L20 140 L180 140 Z" fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="5,5" />
+                            </svg>
+
+                            {/* Top: Customer */}
+                            <div className="z-10 mb-8">
+                                <div className="w-24 h-24 rounded-full bg-emerald-100 flex flex-col justify-center items-center p-2 border-2 border-emerald-300 shadow-sm bg-white">
+                                    <IconUsers size={24} className="text-emerald-600 mb-1"/>
+                                    <span className="text-sm font-bold text-emerald-800">Customer</span>
+                                    <span className="text-xs text-emerald-600">市場・顧客</span>
+                                </div>
+                            </div>
+
+                            {/* Bottom Row */}
+                            <div className="flex justify-between w-full max-w-sm px-4 z-10 gap-8">
+                                {/* Left: Company */}
+                                <div className="w-24 h-24 rounded-full bg-emerald-100 flex flex-col justify-center items-center p-2 border-2 border-emerald-300 shadow-sm bg-white">
+                                    <IconBriefcase size={24} className="text-emerald-600 mb-1"/>
+                                    <span className="text-sm font-bold text-emerald-800">Company</span>
+                                    <span className="text-xs text-emerald-600">自社</span>
+                                </div>
+
+                                {/* Right: Competitor */}
+                                <div className="w-24 h-24 rounded-full bg-emerald-100 flex flex-col justify-center items-center p-2 border-2 border-emerald-300 shadow-sm bg-white">
+                                    <IconShieldAlert size={24} className="text-emerald-600 mb-1"/>
+                                    <span className="text-sm font-bold text-emerald-800">Competitor</span>
+                                    <span className="text-xs text-emerald-600">競合</span>
+                                </div>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+
+                    {/* Step 4: SWOT & Strategy (Side by Side) */}
+                    <div className="relative flex flex-col md:flex-row justify-center gap-6 mb-12 max-w-4xl mx-auto">
+                        
+                        {/* SWOT */}
+                        <div 
+                        className="flex-1 bg-white rounded-xl shadow-md border-t-8 border-teal-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
+                        onClick={() => handleAnalysisClick('swot')}
+                        title="詳細ページへ移動"
+                        >
+                        <div className="flex items-center gap-2 mb-3">
+                            <IconActivity size={24} className="text-teal-600" />
+                            <h2 className="text-xl font-bold text-slate-800">クロスSWOT分析</h2>
+                            <span className="text-[10px] font-normal text-teal-400 border border-teal-200 rounded px-1 ml-auto">Click</span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-4">「強み×機会」で攻めるか、「弱み×脅威」で守るか。具体的な勝ち筋を見つける。</p>
+                        <div className="mb-3"><PromptButton onClick={() => openPrompt('swot')} /></div>
+                        <div className="grid grid-cols-2 gap-2 text-center text-xs text-white font-bold">
+                            <div className="bg-teal-400 p-2 rounded">強み (S)</div>
+                            <div className="bg-teal-400 p-2 rounded">弱み (W)</div>
+                            <div className="bg-teal-600 p-2 rounded">機会 (O)</div>
+                            <div className="bg-teal-600 p-2 rounded">脅威 (T)</div>
+                        </div>
+                        </div>
+
+                        {/* Basic Strategy */}
+                        <div 
+                        className="flex-1 bg-white rounded-xl shadow-md border-t-8 border-cyan-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
+                        onClick={() => handleAnalysisClick('strategy')}
+                        title="詳細ページへ移動"
+                        >
+                        <div className="flex items-center gap-2 mb-3">
+                            <IconZap size={24} className="text-cyan-600" />
+                            <h2 className="text-xl font-bold text-slate-800">基本競争戦略</h2>
+                            <span className="text-[10px] font-normal text-cyan-400 border border-cyan-200 rounded px-1 ml-auto">Click</span>
+                        </div>
+                        <p className="text-sm text-slate-600 mb-4">どのポジションで戦うか？</p>
+                        <div className="mb-3"><PromptButton onClick={() => openPrompt('strategy')} /></div>
+                        <ul className="space-y-2 text-sm">
+                            <li className="flex items-center gap-2">
+                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                            コスト・リーダーシップ
+                            </li>
+                            <li className="flex items-center gap-2">
+                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                            差別化（独自性）
+                            </li>
+                            <li className="flex items-center gap-2">
+                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                            集中（ニッチ）
+                            </li>
+                        </ul>
+                        </div>
+                    </div>
+                    
+                    {/* NEW Step: Business Model Canvas (Phase 2 to 3 Transition) */}
+                    <div className="relative flex flex-col items-center mb-12">
+                        <div 
+                            className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-violet-500 overflow-hidden hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
+                            onClick={() => handleAnalysisClick('bmc')}
+                            title="詳細ページへ移動"
+                        >
+                            <div className="p-6">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h2 className="text-2xl font-bold text-violet-800 flex items-center gap-2">
+                                        <IconLayoutTemplate size={24} className="text-violet-600" />
+                                        ビジネスモデルキャンバス
+                                        <span className="text-xs font-normal text-violet-400 border border-violet-200 rounded px-1">Click to Open</span>
+                                    </h2>
+                                    <span className="text-xs font-semibold bg-violet-100 text-violet-800 px-2 py-1 rounded">ビジネスの全体設計</span>
+                                </div>
+                                <p className="text-slate-600 mb-4 text-sm">決定した戦略をもとに、「誰に」「何を」「どうやって提供し」「どう儲けるか」を1枚の図に統合する。</p>
+                                <div className="mb-3"><PromptButton onClick={() => openPrompt('bmc')} /></div>
+                                
+                                {/* Simplified BMC Graphic */}
+                                <div className="grid grid-cols-5 gap-1 text-[10px] font-bold text-center text-slate-600 h-24">
+                                    <div className="bg-slate-100 border border-slate-200 rounded p-1 flex flex-col justify-center">パートナー<br/>(KP)</div>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="bg-slate-100 border border-slate-200 rounded p-1 h-full flex flex-col justify-center">活動<br/>(KA)</div>
+                                        <div className="bg-slate-100 border border-slate-200 rounded p-1 h-full flex flex-col justify-center">リソース<br/>(KR)</div>
+                                    </div>
+                                    <div className="bg-violet-100 border border-violet-200 text-violet-800 rounded p-1 flex flex-col justify-center shadow-inner">価値提案<br/>(VP)</div>
+                                    <div className="flex flex-col gap-1">
+                                        <div className="bg-slate-100 border border-slate-200 rounded p-1 h-full flex flex-col justify-center">関係<br/>(CR)</div>
+                                        <div className="bg-slate-100 border border-slate-200 rounded p-1 h-full flex flex-col justify-center">チャネル<br/>(CH)</div>
+                                    </div>
+                                    <div className="bg-slate-100 border border-slate-200 rounded p-1 flex flex-col justify-center">顧客<br/>(CS)</div>
+                                    
+                                    {/* Cost & Revenue */}
+                                    <div className="col-span-2 bg-slate-100 border border-slate-200 rounded p-1 flex flex-col justify-center">コスト構造 (C$)</div>
+                                    <div className="col-span-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded p-1 flex flex-col justify-center">収益の流れ (R$)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    </div>
+
+                    {/* PHASE 3: EXECUTION */}
+                    {/* IDを追加: 実行・改善のリンク先 */}
+                    <div id="phase-execution" className="relative scroll-mt-8">
+                    {/* Step 5: Action */}
+                    <div className="relative flex flex-col items-center mb-8">
+                        <div className="z-10 bg-amber-600 text-white px-6 py-2 rounded-full font-bold shadow-lg mb-4 flex items-center gap-2">
+                        <IconShoppingCart size={20} />
+                        Phase 3: 実行と体制（アクション）
+                        </div>
+                        
+                        <div className="flex flex-col md:flex-row gap-6 w-full max-w-4xl">
+                        
+                        {/* 4P Analysis */}
+                        <div 
+                            className="flex-1 bg-white rounded-xl shadow-md border-b-8 border-amber-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
+                            onClick={() => handleAnalysisClick('4p')}
+                            title="詳細ページへ移動"
+                        >
+                            <div className="flex justify-between items-center mb-3">
+                            <h2 className="text-2xl font-bold text-amber-800">4P分析</h2>
+                            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-bold">マーケティング</span>
+                            </div>
+                            <p className="text-slate-600 mb-4 text-sm">顧客に届けるための具体的戦術</p>
+                            <div className="mb-3"><PromptButton onClick={() => openPrompt('4p')} /></div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-amber-50 p-3 rounded border border-amber-100">
+                                <div className="font-bold text-amber-700 text-sm">Product</div>
+                                <div className="text-xs text-slate-500">製品・サービス</div>
+                                </div>
+                                <div className="bg-amber-50 p-3 rounded border border-amber-100">
+                                <div className="font-bold text-amber-700 text-sm">Price</div>
+                                <div className="text-xs text-slate-500">価格設定</div>
+                                </div>
+                                <div className="bg-amber-50 p-3 rounded border border-amber-100">
+                                <div className="font-bold text-amber-700 text-sm">Place</div>
+                                <div className="text-xs text-slate-500">流通・場所</div>
+                                </div>
+                                <div className="bg-amber-50 p-3 rounded border border-amber-100">
+                                <div className="font-bold text-amber-700 text-sm">Promotion</div>
+                                <div className="text-xs text-slate-500">販促・広告</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 7S Analysis */}
+                        <div 
+                            className="flex-1 bg-white rounded-xl shadow-md border-b-8 border-orange-600 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
+                            onClick={() => handleAnalysisClick('7s')}
+                            title="詳細ページへ移動"
+                        >
+                            <div className="flex justify-between items-center mb-3">
+                            <h2 className="text-2xl font-bold text-orange-800">7S分析</h2>
+                            <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-bold">組織マネジメント</span>
+                            </div>
+                            <p className="text-slate-600 mb-4 text-sm">戦略を実行できる組織体制か？</p>
+                            <div className="mb-3"><PromptButton onClick={() => openPrompt('7s')} /></div>
+                            <div className="space-y-3">
+                            <div>
+                                <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">ハードの3S (構造)</span>
+                                <div className="text-sm text-slate-700 bg-orange-50 px-2 py-1 rounded mt-1">
+                                戦略・組織・システム
+                                </div>
+                            </div>
+                            <div>
+                                <span className="text-xs font-bold text-orange-600 uppercase tracking-wider">ソフトの4S (人・価値観)</span>
+                                <div className="text-sm text-slate-700 bg-orange-50 px-2 py-1 rounded mt-1">
+                                価値観・スキル・人材・スタイル
+                                </div>
+                            </div>
+                            </div>
+                        </div>
+
+                        </div>
+                    </div>
+                    </div>
+
+                    {/* Matrix / Summary Footer */}
+                    <div className="mt-16 bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+                    <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+                        <IconLayers size={24} />
+                        目的別・使い分け早見表
+                    </h3>
+                    <p className="text-sm text-slate-500 mb-4">クリックすると該当エリアへ移動します</p>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        
+                        {/* リンク機能を追加 */}
+                        <div 
+                        className="bg-slate-50 p-4 rounded-lg cursor-pointer hover:bg-blue-50 hover:shadow-md transition-all border border-transparent hover:border-blue-200"
+                        onClick={() => scrollToSection('phase-analysis')}
+                        >
+                        <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-blue-700">
+                            <IconSearch size={16} /> 状況把握
+                        </h4>
+                        <p className="text-sm text-slate-600 mb-2">
+                            「市場はどうなってる？」「競合は？」を知りたいとき
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">PESTEL</span>
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">5フォース</span>
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">3C</span>
+                        </div>
+                        </div>
+
+                        <div 
+                        className="bg-slate-50 p-4 rounded-lg cursor-pointer hover:bg-teal-50 hover:shadow-md transition-all border border-transparent hover:border-teal-200"
+                        onClick={() => scrollToSection('phase-strategy')}
+                        >
+                        <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-teal-700">
+                            <IconBarChart2 size={16} /> 戦略立案・設計
+                        </h4>
+                        <p className="text-sm text-slate-600 mb-2">
+                            「どうやって勝つか？」「どう儲けるか？」を決めるとき
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">SWOT</span>
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">競争戦略</span>
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500 font-bold">BMC</span>
+                        </div>
+                        </div>
+
+                        <div 
+                        className="bg-slate-50 p-4 rounded-lg cursor-pointer hover:bg-amber-50 hover:shadow-md transition-all border border-transparent hover:border-amber-200"
+                        onClick={() => scrollToSection('phase-execution')}
+                        >
+                        <h4 className="font-bold text-slate-700 mb-2 flex items-center gap-2 text-amber-700">
+                            <IconTarget size={16} /> 実行・改善
+                        </h4>
+                        <p className="text-sm text-slate-600 mb-2">
+                            「具体的な売り方は？」「組織に問題はないか？」を見るとき
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">4P</span>
+                            <span className="text-xs bg-white border border-slate-300 px-2 py-1 rounded text-slate-500">7S</span>
+                        </div>
+                        </div>
+
+                    </div>
+                    </div>
+
+                </div>
+
+                {/* Settings Modal */}
+                {isSettingsOpen && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                                    <IconSettings size={20} />
+                                    リンクURL設定
+                                </h2>
+                                <button onClick={() => setIsSettingsOpen(false)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+                            
+                            <div className="p-6 overflow-y-auto flex-1">
+                                <p className="text-sm text-slate-600 mb-6">
+                                    各分析をクリックした時の移動先URLを設定します。設定内容はブラウザに保存されます。
+                                </p>
+                                
+                                <div className="space-y-4">
+                                    {Object.keys(urlLabels).map(id => (
+                                        <div key={id} className="flex flex-col gap-1">
+                                            <label className="text-sm font-bold text-slate-700">{urlLabels[id]}</label>
+                                            <input 
+                                                type="url" 
+                                                value={tempUrls[id] || ''} 
+                                                onChange={(e) => handleUrlChange(id, e.target.value)}
+                                                placeholder="https://..."
+                                                className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            
+                            <div className="p-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 rounded-b-xl">
+                                <button 
+                                    onClick={() => setIsSettingsOpen(false)}
+                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded transition-colors text-sm"
+                                >
+                                    キャンセル
+                                </button>
+                                <button 
+                                    onClick={saveSettings}
+                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm transition-colors text-sm"
+                                >
+                                    保存する
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* PESTEL 詳細モーダル（段階導入） */}
+                {pestelModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setPestelModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            {/* ヘッダ */}
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-blue-800 flex items-center gap-2">
+                                    <IconGlobe size={20} />
+                                    PESTEL分析
+                                    {pestelResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setPestelModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* --- メニュー --- */}
+                                {pestelModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">
+                                            ①Canvasで分析し、出力されたJSONを②で取り込みます。
+                                        </p>
+                                        <button
+                                            onClick={() => handleAnalysisClick('pestel')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors text-sm"
+                                        >
+                                            <IconGlobe size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button
+                                            onClick={() => { setPestelModal('import'); setImportError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm"
+                                        >
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {pestelResult && (
+                                            <button
+                                                onClick={() => setPestelModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm"
+                                            >
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* --- 取込ビュー --- */}
+                                {pestelModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">
+                                            Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。
+                                        </p>
+                                        <textarea
+                                            value={importText}
+                                            onChange={(e) => { setImportText(e.target.value); setImportError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "pestel", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        {importError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{importError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handlePestelFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => { setPestelModal(pestelResult ? 'result' : 'menu'); setImportError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm"
+                                                >
+                                                    戻る
+                                                </button>
+                                                <button
+                                                    onClick={importPestel}
+                                                    disabled={!importText.trim()}
+                                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    取り込む
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* --- 結果ビュー --- */}
+                                {pestelModal === 'result' && pestelResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{pestelResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{pestelResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{pestelResult.summary}</p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            {[
+                                                ['politics', 'P：政治'],
+                                                ['economy', 'E：経済'],
+                                                ['society', 'S：社会'],
+                                                ['technology', 'T：技術'],
+                                                ['environment', 'E：環境'],
+                                                ['legal', 'L：法律'],
+                                            ].map(([key, label]) => {
+                                                const items = Array.isArray(pestelResult.data[key]) ? pestelResult.data[key] : [];
+                                                return (
+                                                    <div key={key} className="border border-slate-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-800">{label}</div>
+                                                        {items.length === 0 ? (
+                                                            <div className="px-3 py-2 text-xs text-slate-400">（該当なし）</div>
+                                                        ) : (
+                                                            <div className="divide-y divide-slate-100">
+                                                                {items.map((it, i) => {
+                                                                    const type = it && it.type;
+                                                                    const badge = type === '機会'
+                                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                                        : type === '脅威'
+                                                                        ? 'bg-rose-100 text-rose-700'
+                                                                        : 'bg-slate-100 text-slate-500';
+                                                                    return (
+                                                                        <div key={i} className="px-3 py-2">
+                                                                            <div className="flex items-start gap-2">
+                                                                                {type && <span className={"text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 mt-0.5 " + badge}>{type}</span>}
+                                                                                <span className="text-sm text-slate-700">{it && it.item}</span>
+                                                                            </div>
+                                                                            {it && it.note && <p className="text-xs text-slate-400 mt-1 pl-1">{it.note}</p>}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button
+                                                onClick={deletePestel}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm"
+                                            >
+                                                結果を削除
+                                            </button>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => { setImportText(''); setImportError(''); setPestelModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm"
+                                                >
+                                                    取り込み直す
+                                                </button>
+                                                <button
+                                                    onClick={() => setPestelModal(null)}
+                                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm"
+                                                >
+                                                    閉じる
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 基本情報 編集モーダル */}
+                {isBasicOpen && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={() => setIsBasicOpen(false)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><IconBriefcase size={20} /> 基本情報</h2>
+                                <button onClick={() => setIsBasicOpen(false)} className="text-slate-500 hover:text-slate-800 p-1"><IconX size={24} /></button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1">
+                                <p className="text-sm text-slate-600 mb-4">分析対象の情報を登録します。各分析の「プロンプト」ボタンで生成される文面に自動で含まれます。</p>
+                                <div className="space-y-3">
+                                    {[
+                                        ['subject', '会社名・事業名', true],
+                                        ['industry', '業種', true],
+                                        ['location', '所在地', false],
+                                        ['size', '規模（従業員数・売上など）', false],
+                                        ['business', '事業内容', true],
+                                        ['issues', '現状の課題', false],
+                                        ['memo', '補足メモ', false],
+                                    ].map(([k, label, req]) => (
+                                        <div key={k} className="flex flex-col gap-1">
+                                            <label className="text-sm font-bold text-slate-700">{label}{req && <span className="text-rose-500 ml-1">*</span>}</label>
+                                            {k === 'business' || k === 'issues' || k === 'memo' ? (
+                                                <textarea value={tempBasic[k]} onChange={(e) => handleBasicChange(k, e.target.value)}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm h-16" />
+                                            ) : (
+                                                <input type="text" value={tempBasic[k]} onChange={(e) => handleBasicChange(k, e.target.value)}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="p-4 border-t border-slate-200 flex justify-end gap-3 bg-slate-50 rounded-b-xl">
+                                <button onClick={() => setIsBasicOpen(false)} className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-200 rounded text-sm">キャンセル</button>
+                                <button onClick={saveBasic} disabled={!tempBasic.subject.trim()}
+                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">保存する</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* プロンプト表示モーダル */}
+                {promptModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={() => setPromptModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                    <IconClipboard size={18} /> {(ANALYSIS_META[promptModal.id] || {}).name} の分析用プロンプト
+                                </h2>
+                                <button onClick={() => setPromptModal(null)} className="text-slate-500 hover:text-slate-800 p-1"><IconX size={24} /></button>
+                            </div>
+                            <div className="p-6 overflow-y-auto flex-1">
+                                <p className="text-sm text-slate-600 mb-3">
+                                    コピーしてCanvasの最初のメッセージとして貼り付けてください。基本情報と、取込済みの分析結果が含まれています。
+                                </p>
+                                <textarea readOnly value={promptModal.text} onClick={(e) => e.target.select()}
+                                    className="w-full h-72 px-3 py-2 border border-slate-300 rounded font-mono text-xs bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                            </div>
+                            <div className="p-4 border-t border-slate-200 flex justify-between gap-3 bg-slate-50 rounded-b-xl">
+                                <button onClick={() => { setPromptModal(null); handleAnalysisClick(promptModal.id); }}
+                                    className="px-4 py-2 text-blue-700 font-bold hover:bg-blue-50 rounded text-sm flex items-center gap-1">
+                                    <IconGlobe size={16} /> Canvasを開く
+                                </button>
+                                <button onClick={copyPrompt}
+                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm">クリップボードにコピー</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 成功トースト */}
+                {toast && (
+                    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] bg-emerald-600 text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-bold flex items-center gap-2">
+                        <span>✓</span> {toast}
+                    </div>
+                )}
+                </div>
+            );
+        };
+
+        // 白画面の代わりに原因を表示するエラーバウンダリ
+        class ErrorBoundary extends React.Component {
+            constructor(props) { super(props); this.state = { error: null }; }
+            static getDerivedStateFromError(error) { return { error }; }
+            componentDidCatch(error, info) { console.error('描画エラー:', error, info); }
+            render() {
+                if (this.state.error) {
+                    return (
+                        <div style={{ padding: 20, fontFamily: 'sans-serif', color: '#b91c1c' }}>
+                            <h2>エラーが発生しました</h2>
+                            <pre style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error)}</pre>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<ErrorBoundary><FrameworkInfographic /></ErrorBoundary>);
+    </script>
+</body>
+</html>
