@@ -41,6 +41,8 @@
             }
             #report-print-area, #report-print-area * {
                 visibility: visible;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
             #report-print-area {
                 position: absolute;
@@ -537,6 +539,17 @@
             // --- 統合サマリー・印刷レポート用の状態 ---
             const [showReport, setShowReport] = useState(false);
             const ORDER = ['pestel','5forces','3c','swot','strategy','bmc','4p','7s'];
+            // 印刷レポート用: 分析ごとの淡いアクセント色とアイコン
+            const REPORT_META = {
+                pestel:   { icon: IconGlobe,          headerBg: 'bg-blue-50',    headerText: 'text-blue-700',    border: 'border-blue-200' },
+                '5forces':{ icon: IconShieldAlert,    headerBg: 'bg-indigo-50',  headerText: 'text-indigo-700',  border: 'border-indigo-200' },
+                '3c':     { icon: IconTarget,         headerBg: 'bg-emerald-50', headerText: 'text-emerald-700', border: 'border-emerald-200' },
+                swot:     { icon: IconActivity,       headerBg: 'bg-teal-50',    headerText: 'text-teal-700',    border: 'border-teal-200' },
+                strategy: { icon: IconZap,            headerBg: 'bg-cyan-50',    headerText: 'text-cyan-700',    border: 'border-cyan-200' },
+                bmc:      { icon: IconLayoutTemplate, headerBg: 'bg-violet-50',  headerText: 'text-violet-700',  border: 'border-violet-200' },
+                '4p':     { icon: IconMegaphone,      headerBg: 'bg-amber-50',   headerText: 'text-amber-700',   border: 'border-amber-200' },
+                '7s':     { icon: IconUsers,          headerBg: 'bg-orange-50',  headerText: 'text-orange-700',  border: 'border-orange-200' },
+            };
             const completedCount = ORDER.filter(id => results[id]).length;
             const lastUpdated = ORDER
                 .map(id => results[id] && results[id].analyzedAt)
@@ -2873,35 +2886,48 @@
                             </div>
 
                             <div id="report-print-area" className="p-8">
-                                <div className="mb-6 pb-4 border-b-2 border-slate-800">
-                                    <h1 className="text-2xl font-bold text-slate-900">経営分析レポート</h1>
-                                    <p className="text-sm text-slate-500 mt-1">
-                                        作成日: {new Date().toLocaleDateString('ja-JP')}
-                                        {lastUpdated && <span className="ml-3">最終分析日: {lastUpdated}</span>}
-                                    </p>
+                                <div className="mb-6 pb-4 border-b-2 border-slate-300 flex items-center justify-between">
+                                    <div>
+                                        <h1 className="text-2xl font-bold text-slate-800">経営分析レポート</h1>
+                                        <p className="text-sm text-slate-500 mt-1">
+                                            作成日: {new Date().toLocaleDateString('ja-JP')}
+                                            {lastUpdated && <span className="ml-3">最終分析日: {lastUpdated}</span>}
+                                        </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <div className="text-xs text-slate-400 font-bold">分析進捗</div>
+                                        <div className="flex gap-1 mt-1">
+                                            {ORDER.map(id => (
+                                                <span key={id} className={"w-4 h-4 rounded-sm " + (results[id] ? "bg-blue-200" : "bg-slate-100")}></span>
+                                            ))}
+                                        </div>
+                                        <div className="text-xs text-slate-400 mt-1">{completedCount} / 8 完了</div>
+                                    </div>
                                 </div>
 
-                                {/* 基本情報 */}
-                                <div className="mb-6">
-                                    <h2 className="text-base font-bold text-slate-800 bg-slate-100 px-3 py-1.5 rounded mb-2">基本情報</h2>
-                                    <table className="w-full text-sm">
-                                        <tbody>
+                                {/* 基本情報（チップ風） */}
+                                {basicRegistered && (
+                                    <div className="mb-8 bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                        <div className="flex items-center gap-2 mb-3">
+                                            <IconBriefcase size={18} className="text-slate-500" />
+                                            <h2 className="text-base font-bold text-slate-700">{basicInfo.subject}</h2>
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
                                             {[
-                                                ['会社名・事業名', basicInfo.subject],
                                                 ['業種', basicInfo.industry],
                                                 ['所在地', basicInfo.location],
                                                 ['規模', basicInfo.size],
                                                 ['事業内容', basicInfo.business],
                                                 ['現状の課題', basicInfo.issues],
                                             ].filter(([, v]) => v).map(([k, v]) => (
-                                                <tr key={k} className="border-b border-slate-100">
-                                                    <td className="py-1.5 pr-4 text-slate-400 whitespace-nowrap align-top w-28">{k}</td>
-                                                    <td className="py-1.5 text-slate-700">{v}</td>
-                                                </tr>
+                                                <div key={k} className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5">
+                                                    <div className="text-slate-400 text-[10px] font-bold">{k}</div>
+                                                    <div className="text-slate-700">{v}</div>
+                                                </div>
                                             ))}
-                                        </tbody>
-                                    </table>
-                                </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 {completedCount === 0 && (
                                     <p className="text-sm text-slate-400">取り込まれた分析結果がありません。</p>
@@ -2911,121 +2937,169 @@
                                 {ORDER.filter(id => results[id]).map((id, idx) => {
                                     const r = results[id];
                                     const d = r.data || {};
+                                    const rm = REPORT_META[id] || {};
+                                    const RIcon = rm.icon;
                                     return (
-                                        <div key={id} className="mb-6 break-inside-avoid">
-                                            <h2 className="text-base font-bold text-slate-800 bg-slate-100 px-3 py-1.5 rounded mb-2">
-                                                {idx + 1}. {(ANALYSIS_META[id] || {}).name}
-                                                <span className="text-xs font-normal text-slate-400 ml-2">（{r.analyzedAt || '—'}）</span>
-                                            </h2>
-                                            {r.summary && <p className="text-sm text-slate-700 mb-2">{r.summary}</p>}
+                                        <div key={id} className={"mb-6 break-inside-avoid border rounded-xl overflow-hidden " + (rm.border || 'border-slate-200')}>
+                                            <div className={"px-4 py-2.5 flex items-center gap-2 " + (rm.headerBg || 'bg-slate-50')}>
+                                                {RIcon && <RIcon size={18} className={rm.headerText || 'text-slate-600'} />}
+                                                <h2 className={"text-sm font-bold " + (rm.headerText || 'text-slate-700')}>
+                                                    {idx + 1}. {(ANALYSIS_META[id] || {}).name}
+                                                </h2>
+                                                <span className="text-[10px] text-slate-400 ml-auto">{r.analyzedAt || '—'}</span>
+                                            </div>
+                                            <div className="p-4">
+                                                {r.summary && <p className="text-xs text-slate-600 mb-3 italic">{r.summary}</p>}
 
-                                            {id === 'pestel' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
-                                                        {[['politics','政治'],['economy','経済'],['society','社会'],['technology','技術'],['environment','環境'],['legal','法律']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-16 align-top">{label}</td>
-                                                                <td className="py-1 text-slate-700">
-                                                                    {(d[k]||[]).map((it,i) => <div key={i}>・[{it.type}] {it.item}</div>)}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            )}
+                                                {id === 'pestel' && (
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        {[['politics','政治'],['economy','経済'],['society','社会'],['technology','技術'],['environment','環境'],['legal','法律']].map(([k,label]) => {
+                                                            const items = d[k] || [];
+                                                            if (items.length === 0) return null;
+                                                            return (
+                                                                <div key={k} className="border border-slate-100 rounded-lg p-2">
+                                                                    <div className="text-[10px] font-bold text-blue-600 mb-1">{label}</div>
+                                                                    {items.map((it, i) => (
+                                                                        <div key={i} className="text-xs text-slate-700 flex items-start gap-1.5 mb-0.5">
+                                                                            <span className={"text-[9px] font-bold px-1 rounded shrink-0 mt-0.5 " + (it.type === '機会' ? 'bg-emerald-50 text-emerald-600' : it.type === '脅威' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-400')}>{it.type}</span>
+                                                                            <span>{it.item}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
 
-                                            {id === '5forces' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
-                                                        {[['rivalry','競合'],['newEntrants','新規参入'],['substitutes','代替品'],['buyers','買い手'],['suppliers','売り手']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-20 align-top">{label}（{(d[k]||{}).level || '—'}）</td>
-                                                                <td className="py-1 text-slate-700">{((d[k]||{}).factors||[]).join(' / ')}</td>
-                                                            </tr>
-                                                        ))}
-                                                        {d.overall && <tr><td className="py-1 pr-3 text-slate-400 align-top">総評</td><td className="py-1 text-slate-700">{d.overall}</td></tr>}
-                                                    </tbody>
-                                                </table>
-                                            )}
+                                                {id === '5forces' && (
+                                                    <div className="space-y-1.5">
+                                                        {[['rivalry','競合他社'],['newEntrants','新規参入'],['substitutes','代替品'],['buyers','買い手'],['suppliers','売り手']].map(([k,label]) => {
+                                                            const f = d[k] || {};
+                                                            const lv = f.level;
+                                                            const lvCls = lv === '高' ? 'bg-rose-50 text-rose-600' : lv === '中' ? 'bg-amber-50 text-amber-600' : lv === '低' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400';
+                                                            return (
+                                                                <div key={k} className="flex items-start gap-2 text-xs">
+                                                                    <span className={"font-bold px-1.5 py-0.5 rounded shrink-0 w-20 text-center " + lvCls}>{label} {lv || '—'}</span>
+                                                                    <span className="text-slate-600 pt-0.5">{(f.factors||[]).join(' / ')}</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {d.overall && (
+                                                            <div className="mt-2 bg-indigo-50 rounded-lg px-3 py-2 text-xs text-indigo-700">{d.overall}</div>
+                                                        )}
+                                                    </div>
+                                                )}
 
-                                            {id === '3c' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
-                                                        {[['customer','顧客'],['competitor','競合'],['company','自社']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-16 align-top">{label}</td>
-                                                                <td className="py-1 text-slate-700">{(d[k]||[]).join(' / ')}</td>
-                                                            </tr>
-                                                        ))}
-                                                        {(d.ksf||[]).length > 0 && <tr><td className="py-1 pr-3 text-slate-400 align-top">KSF</td><td className="py-1 text-slate-700 font-bold">{d.ksf.join(' / ')}</td></tr>}
-                                                    </tbody>
-                                                </table>
-                                            )}
-
-                                            {id === 'swot' && (
-                                                <div className="text-xs space-y-1">
-                                                    {[['strengths','強み'],['weaknesses','弱み'],['opportunities','機会'],['threats','脅威']].map(([k,label]) => (
-                                                        <div key={k}><span className="text-slate-400">{label}: </span><span className="text-slate-700">{(d[k]||[]).join(' / ')}</span></div>
-                                                    ))}
-                                                    {d.cross && (
-                                                        <div className="mt-2 pt-2 border-t border-slate-100">
-                                                            {[['so','SO'],['wo','WO'],['st','ST'],['wt','WT']].map(([k,label]) => (
-                                                                (d.cross[k]||[]).length > 0 && <div key={k}><span className="text-slate-400">{label}: </span><span className="text-slate-700">{d.cross[k].join(' / ')}</span></div>
+                                                {id === '3c' && (
+                                                    <div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                                            {[['customer','顧客・市場'],['competitor','競合'],['company','自社']].map(([k,label]) => (
+                                                                <div key={k} className="bg-emerald-50 rounded-lg p-2">
+                                                                    <div className="text-[10px] font-bold text-emerald-600 mb-1">{label}</div>
+                                                                    {(d[k]||[]).map((it,i) => <div key={i} className="text-xs text-slate-700">・{it}</div>)}
+                                                                </div>
                                                             ))}
                                                         </div>
-                                                    )}
-                                                </div>
-                                            )}
+                                                        {(d.ksf||[]).length > 0 && (
+                                                            <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                                                <div className="text-[10px] font-bold text-amber-600 mb-0.5">⭐ 成功要因（KSF）</div>
+                                                                <div className="text-xs text-slate-700">{d.ksf.join(' / ')}</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
-                                            {id === 'strategy' && (
-                                                <div className="text-xs space-y-1">
-                                                    <div><span className="text-slate-400">採用ポジション: </span><span className="text-slate-800 font-bold">{d.position || '—'}</span></div>
-                                                    {d.rationale && <div><span className="text-slate-400">理由: </span><span className="text-slate-700">{d.rationale}</span></div>}
-                                                    {(d.actions||[]).length > 0 && <div><span className="text-slate-400">アクション: </span><span className="text-slate-700">{d.actions.join(' / ')}</span></div>}
-                                                </div>
-                                            )}
+                                                {id === 'swot' && (
+                                                    <div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            {[['strengths','強み','bg-teal-50 text-teal-700'],['weaknesses','弱み','bg-orange-50 text-orange-700'],['opportunities','機会','bg-sky-50 text-sky-700'],['threats','脅威','bg-rose-50 text-rose-700']].map(([k,label,cls]) => (
+                                                                <div key={k} className={"rounded-lg p-2 " + cls}>
+                                                                    <div className="text-[10px] font-bold mb-1">{label}</div>
+                                                                    <div className="text-xs text-slate-700">{(d[k]||[]).join(' / ') || '—'}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {d.cross && (
+                                                            <div className="grid grid-cols-2 gap-2 mt-2">
+                                                                {[['so','SO：積極化'],['wo','WO：改善'],['st','ST：差別化'],['wt','WT：防衛']].map(([k,label]) => (
+                                                                    (d.cross[k]||[]).length > 0 && (
+                                                                        <div key={k} className="bg-slate-50 rounded-lg p-2">
+                                                                            <div className="text-[10px] font-bold text-slate-500 mb-1">{label}</div>
+                                                                            <div className="text-xs text-slate-700">{d.cross[k].join(' / ')}</div>
+                                                                        </div>
+                                                                    )
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
 
-                                            {id === 'bmc' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
-                                                        {[['kp','パートナー'],['ka','主要活動'],['kr','リソース'],['vp','価値提案'],['cr','顧客との関係'],['ch','チャネル'],['cs','顧客セグメント'],['cost','コスト構造'],['revenue','収益の流れ']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-24 align-top">{label}</td>
-                                                                <td className="py-1 text-slate-700">{(d[k]||[]).join(' / ')}</td>
-                                                            </tr>
+                                                {id === 'strategy' && (
+                                                    <div>
+                                                        <span className="inline-block bg-cyan-50 border border-cyan-200 text-cyan-700 text-sm font-bold px-3 py-1 rounded-full mb-2">
+                                                            採用ポジション: {d.position || '—'}
+                                                        </span>
+                                                        {d.rationale && <p className="text-xs text-slate-600 mb-2">{d.rationale}</p>}
+                                                        {(d.actions||[]).length > 0 && (
+                                                            <ul className="space-y-1">
+                                                                {d.actions.map((a,i) => (
+                                                                    <li key={i} className="text-xs text-slate-700 flex items-start gap-1.5">
+                                                                        <span className="w-4 h-4 bg-cyan-50 text-cyan-600 rounded-full text-[9px] font-bold flex items-center justify-center shrink-0 mt-0.5">{i+1}</span>
+                                                                        <span>{a}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {id === 'bmc' && (
+                                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-1.5 text-[10px]">
+                                                        {[['kp','パートナー'],['ka','活動'],['kr','リソース']].map(([k,l]) => (
+                                                            <div key={k} className="bg-slate-50 rounded p-1.5"><div className="font-bold text-slate-400">{l}</div><div className="text-slate-700">{(d[k]||[]).join(' / ')}</div></div>
                                                         ))}
-                                                    </tbody>
-                                                </table>
-                                            )}
+                                                        <div className="bg-violet-50 rounded p-1.5"><div className="font-bold text-violet-500">価値提案</div><div className="text-slate-700">{(d.vp||[]).join(' / ')}</div></div>
+                                                        {[['cr','関係'],['ch','チャネル'],['cs','顧客層']].map(([k,l]) => (
+                                                            <div key={k} className="bg-slate-50 rounded p-1.5"><div className="font-bold text-slate-400">{l}</div><div className="text-slate-700">{(d[k]||[]).join(' / ')}</div></div>
+                                                        ))}
+                                                        <div className="col-span-2 md:col-span-2 bg-slate-50 rounded p-1.5"><div className="font-bold text-slate-400">コスト構造</div><div className="text-slate-700">{(d.cost||[]).join(' / ')}</div></div>
+                                                        <div className="col-span-3 md:col-span-3 bg-emerald-50 rounded p-1.5"><div className="font-bold text-emerald-500">収益の流れ</div><div className="text-slate-700">{(d.revenue||[]).join(' / ')}</div></div>
+                                                    </div>
+                                                )}
 
-                                            {id === '4p' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
+                                                {id === '4p' && (
+                                                    <div className="grid grid-cols-2 gap-2">
                                                         {[['product','Product'],['price','Price'],['place','Place'],['promotion','Promotion']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-20 align-top">{label}</td>
-                                                                <td className="py-1 text-slate-700">{(d[k]||[]).join(' / ')}</td>
-                                                            </tr>
+                                                            <div key={k} className="bg-amber-50 rounded-lg p-2">
+                                                                <div className="text-[10px] font-bold text-amber-600 mb-1">{label}</div>
+                                                                <div className="text-xs text-slate-700">{(d[k]||[]).join(' / ') || '—'}</div>
+                                                            </div>
                                                         ))}
-                                                    </tbody>
-                                                </table>
-                                            )}
+                                                    </div>
+                                                )}
 
-                                            {id === '7s' && (
-                                                <table className="w-full text-xs border-collapse">
-                                                    <tbody>
-                                                        {[['strategy','Strategy'],['structure','Structure'],['systems','Systems'],['sharedValues','Shared Values'],['skills','Skills'],['staff','Staff'],['style','Style']].map(([k,label]) => (
-                                                            <tr key={k} className="border-b border-slate-100">
-                                                                <td className="py-1 pr-3 text-slate-400 w-24 align-top">{label}</td>
-                                                                <td className="py-1 text-slate-700">
-                                                                    現状: {(d[k]||{}).current || '—'}　課題: {(d[k]||{}).issue || '—'}
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                        {d.alignment && <tr><td className="py-1 pr-3 text-slate-400 align-top">総評</td><td className="py-1 text-slate-700">{d.alignment}</td></tr>}
-                                                    </tbody>
-                                                </table>
-                                            )}
+                                                {id === '7s' && (
+                                                    <div>
+                                                        <div className="grid grid-cols-1 gap-1">
+                                                            {[['strategy','Strategy'],['structure','Structure'],['systems','Systems']].map(([k,label]) => (
+                                                                <div key={k} className="bg-orange-50 rounded px-2 py-1 text-xs flex gap-2">
+                                                                    <span className="font-bold text-orange-600 w-24 shrink-0">{label}</span>
+                                                                    <span className="text-slate-700">現状: {(d[k]||{}).current || '—'}　課題: {(d[k]||{}).issue || '—'}</span>
+                                                                </div>
+                                                            ))}
+                                                            {[['sharedValues','Shared Values'],['skills','Skills'],['staff','Staff'],['style','Style']].map(([k,label]) => (
+                                                                <div key={k} className="bg-amber-50 rounded px-2 py-1 text-xs flex gap-2">
+                                                                    <span className="font-bold text-amber-600 w-24 shrink-0">{label}</span>
+                                                                    <span className="text-slate-700">現状: {(d[k]||{}).current || '—'}　課題: {(d[k]||{}).issue || '—'}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                        {d.alignment && (
+                                                            <div className="mt-2 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 text-xs text-orange-700">{d.alignment}</div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     );
                                 })}
