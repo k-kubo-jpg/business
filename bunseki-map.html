@@ -66,6 +66,7 @@
             bmc:      { name: 'ビジネスモデルキャンバス' },
             '4p':     { name: '4P分析' },
             '7s':     { name: '7S分析' },
+            innovator:{ name: '課題解決イノベーター' },
         };
 
         // 各frameworkのdataスキーマ例（プロンプト末尾に貼る・仕様書§5.2と同一ソース）
@@ -223,7 +224,47 @@
                     lines.push(...block);
                 }
             }
-            // ※ 後続分析（strategy/bmc等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
+            // 基本競争戦略 → bmc / 4p にポジションとアクションを引き継ぐ
+            const strategy = results['strategy'];
+            if (strategy && ['bmc', '4p'].includes(targetId)) {
+                const d = strategy.data || {};
+                const block = [];
+                if (d.position) block.push(`  採用ポジション: ${d.position}`);
+                if (d.rationale) block.push(`  理由: ${d.rationale}`);
+                if (Array.isArray(d.actions) && d.actions.length) block.push(`  アクション: ${d.actions.join(' / ')}`);
+                if (block.length) {
+                    lines.push(`■ 基本競争戦略（${strategy.analyzedAt || ''} 実施）`);
+                    lines.push(...block);
+                }
+            }
+            // BMC → 4p に価値提案・チャネル・顧客セグメントを引き継ぐ
+            const bmc = results['bmc'];
+            if (bmc && ['4p'].includes(targetId)) {
+                const d = bmc.data || {};
+                const block = [];
+                if (Array.isArray(d.vp) && d.vp.length) block.push(`  価値提案(VP): ${d.vp.join(' / ')}`);
+                if (Array.isArray(d.cs) && d.cs.length) block.push(`  顧客セグメント(CS): ${d.cs.join(' / ')}`);
+                if (Array.isArray(d.ch) && d.ch.length) block.push(`  チャネル(CH): ${d.ch.join(' / ')}`);
+                if (Array.isArray(d.revenue) && d.revenue.length) block.push(`  収益の流れ: ${d.revenue.join(' / ')}`);
+                if (block.length) {
+                    lines.push(`■ ビジネスモデルキャンバス（${bmc.analyzedAt || ''} 実施）`);
+                    lines.push(...block);
+                }
+            }
+            // 4P → 7s にマーケティング施策を引き継ぐ（実行できる組織かを問う）
+            const fourp = results['4p'];
+            if (fourp && ['7s'].includes(targetId)) {
+                const d = fourp.data || {};
+                const block = [];
+                if (Array.isArray(d.product) && d.product.length)     block.push(`  製品(Product): ${d.product.join(' / ')}`);
+                if (Array.isArray(d.promotion) && d.promotion.length) block.push(`  販促(Promotion): ${d.promotion.join(' / ')}`);
+                if (Array.isArray(d.place) && d.place.length)         block.push(`  流通(Place): ${d.place.join(' / ')}`);
+                if (block.length) {
+                    lines.push(`■ 4P分析（${fourp.analyzedAt || ''} 実施）`);
+                    lines.push(...block);
+                }
+            }
+            // ※ 後続分析（7s等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
             return lines.join('\n');
         }
 
@@ -253,6 +294,42 @@
             p += `- スキーマに無いキーを追加しない。キーは英語小文字、値は日本語\n`;
             p += `- "framework"は"${analysisId}"、"subject"は"${bi.subject || '（会社名）'}"、"analyzedAt"は今日の日付(YYYY-MM-DD)\n\n`;
             p += schema;
+            return p;
+        }
+
+        // 課題解決イノベーター用プロンプト（集約対象外・全分析の要約を素材に他業種アイデアを引き出す）
+        function buildInnovatorPrompt(basicInfo, results) {
+            const bi = basicInfo || EMPTY_BASIC;
+            const infoLines = [];
+            if (bi.subject)  infoLines.push(`会社名: ${bi.subject}`);
+            if (bi.industry) infoLines.push(`業種: ${bi.industry}`);
+            if (bi.business) infoLines.push(`事業内容: ${bi.business}`);
+            if (bi.issues)   infoLines.push(`現状の課題: ${bi.issues}`);
+
+            // 取込済みの全分析から要約と主要な課題材料を集める
+            const order = ['pestel','5forces','3c','swot','strategy','bmc','4p','7s'];
+            const done = [];
+            order.forEach(id => {
+                const r = results[id];
+                if (r && r.summary) done.push(`■ ${(ANALYSIS_META[id]||{}).name}: ${r.summary}`);
+            });
+            // SWOTの弱み・脅威があれば「解くべき課題」として明示
+            const problems = [];
+            const swot = results['swot'];
+            if (swot && swot.data) {
+                (swot.data.weaknesses || []).forEach(w => problems.push(`弱み: ${w}`));
+                (swot.data.threats || []).forEach(t => problems.push(`脅威: ${t}`));
+            }
+
+            let p = `私の会社が抱える課題を、他業種の成功事例の仕組みを応用して解決する画期的なアイデアを一緒に考えてください。`;
+            p += `対話形式で、視点を変える問いを投げかけながら発想を広げてください。\n\n`;
+            p += `【基本情報】\n${infoLines.join('\n')}\n\n`;
+            if (done.length) p += `【これまでの分析結果の要約】\n${done.join('\n')}\n\n`;
+            if (problems.length) p += `【特に解決したい課題】\n${problems.join('\n')}\n\n`;
+            p += `【進め方】\n`;
+            p += `- まず、上記から「最も解く価値のある課題」を一緒に1つ絞り込んでください。\n`;
+            p += `- その課題に対し、まったく異なる業種（例: 製造業の課題に飲食業やゲーム業界の仕組みを当てる等）の成功パターンを複数持ち出してください。\n`;
+            p += `- それぞれを私の会社にどう応用できるか、具体的なアイデアに落として提案してください。\n`;
             return p;
         }
 
@@ -339,12 +416,15 @@
         const IconClipboard = ({ size = 24, className = "" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
         );
+        const IconMegaphone = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+        );
 
         // カード内に重ねるプロンプトコピー小ボタン（カード本体クリックを止める）
         const PromptButton = ({ onClick }) => (
             <button
                 onClick={(e) => { e.stopPropagation(); onClick(); }}
-                className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 bg-slate-100 hover:bg-blue-100 hover:text-blue-700 border border-slate-200 rounded px-2 py-1 transition-colors"
+                className="inline-flex items-center gap-1 text-xs font-bold text-pink-700 bg-pink-100 hover:bg-pink-200 hover:text-pink-800 border border-pink-300 rounded px-2 py-1 transition-colors"
                 title="基本情報と既存の分析結果を含む分析用プロンプトをコピー"
             >
                 <IconClipboard size={13} /> プロンプト
@@ -361,9 +441,10 @@
                 '3c': 'https://gemini.google.com/gem/1_wBpTrCnfE_SE4g0ybVaUYwn8uQAB-OQ?usp=sharing',
                 'swot': 'https://gemini.google.com/gem/24c503930c1f?usp=sharing',
                 'strategy': 'https://gemini.google.com/gem/1rYkFAsrYahbH_653HBPOD4HASfkC4PqP?usp=sharing',
-                'bmc': '', 
+                'bmc': 'https://gemini.google.com/share/d/1i4RrKvD44qsfHAD8Q6ugidntGGH7k_bA?usp=sharing', 
                 '4p': 'https://gemini.google.com/gem/19bywqVRuo7ePtNhp-kaw_smOokDIUhN8?usp=sharing',
-                '7s': 'https://gemini.google.com/gem/1-9Zgr80eDZGxQ6iq4-pIErkMeAb-gMnV?usp=sharing'
+                '7s': 'https://gemini.google.com/gem/1-9Zgr80eDZGxQ6iq4-pIErkMeAb-gMnV?usp=sharing',
+                'innovator': 'https://gemini.google.com/share/d/1DTttQrX5D4AuHwr8v6O0GdGHJzEeRQOL?usp=sharing'
             };
 
             // 状態管理
@@ -397,6 +478,30 @@
             const [swotText, setSwotText] = useState('');
             const [swotError, setSwotError] = useState('');
             const swotResult = results['swot'] || null;
+
+            // --- 基本競争戦略 段階導入用の状態 ---
+            const [strategyModal, setStrategyModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [strategyText, setStrategyText] = useState('');
+            const [strategyError, setStrategyError] = useState('');
+            const strategyResult = results['strategy'] || null;
+
+            // --- BMC 段階導入用の状態 ---
+            const [bmcModal, setBmcModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [bmcText, setBmcText] = useState('');
+            const [bmcError, setBmcError] = useState('');
+            const bmcResult = results['bmc'] || null;
+
+            // --- 4P 段階導入用の状態 ---
+            const [fourpModal, setFourpModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [fourpText, setFourpText] = useState('');
+            const [fourpError, setFourpError] = useState('');
+            const fourpResult = results['4p'] || null;
+
+            // --- 7S 段階導入用の状態 ---
+            const [sevensModal, setSevensModal] = useState(null); // null | 'menu' | 'import' | 'result'
+            const [sevensText, setSevensText] = useState('');
+            const [sevensError, setSevensError] = useState('');
+            const sevensResult = results['7s'] || null;
 
             // --- 基本情報・プロンプト生成用の状態 ---
             const [basicInfo, setBasicInfo] = useState({ ...EMPTY_BASIC });
@@ -441,7 +546,9 @@
                     openBasic();
                     return;
                 }
-                const text = buildPrompt(analysisId, basicInfo, results);
+                const text = analysisId === 'innovator'
+                    ? buildInnovatorPrompt(basicInfo, results)
+                    : buildPrompt(analysisId, basicInfo, results);
                 setPromptModal({ id: analysisId, text });
             };
             const copyPrompt = async () => {
@@ -617,7 +724,158 @@
                 reader.readAsText(file, 'utf-8');
                 e.target.value = '';
             };
+
+            // --- 基本競争戦略: 取込確定 ---
+            const importStrategy = () => {
+                const res = parseResultJson(strategyText, 'strategy', '基本競争戦略');
+                if (!res.ok) { setStrategyError(res.error); return; }
+                const next = { ...results, strategy: res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setStrategyError('');
+                setStrategyText('');
+                setToast('基本競争戦略を取り込みました');
+                setStrategyModal('result');
+            };
+
+            // --- 基本競争戦略: 結果削除 ---
+            const deleteStrategy = () => {
+                if (!window.confirm('基本競争戦略の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['strategy'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setStrategyModal('menu');
+            };
+
+            // --- 基本競争戦略: ファイル読込 ---
+            const handleStrategyFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setStrategyText(String(reader.result || '')); setStrategyError(''); };
+                reader.onerror = () => setStrategyError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // --- BMC: 取込確定 ---
+            const importBmc = () => {
+                const res = parseResultJson(bmcText, 'bmc', 'ビジネスモデルキャンバス');
+                if (!res.ok) { setBmcError(res.error); return; }
+                const next = { ...results, bmc: res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setBmcError('');
+                setBmcText('');
+                setToast('ビジネスモデルキャンバスを取り込みました');
+                setBmcModal('result');
+            };
+
+            // --- BMC: 結果削除 ---
+            const deleteBmc = () => {
+                if (!window.confirm('ビジネスモデルキャンバスの取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['bmc'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setBmcModal('menu');
+            };
+
+            // --- BMC: ファイル読込 ---
+            const handleBmcFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setBmcText(String(reader.result || '')); setBmcError(''); };
+                reader.onerror = () => setBmcError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // --- 4P: 取込確定 ---
+            const importFourp = () => {
+                const res = parseResultJson(fourpText, '4p', '4P分析');
+                if (!res.ok) { setFourpError(res.error); return; }
+                const next = { ...results, '4p': res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setFourpError('');
+                setFourpText('');
+                setToast('4P分析を取り込みました');
+                setFourpModal('result');
+            };
+
+            // --- 4P: 結果削除 ---
+            const deleteFourp = () => {
+                if (!window.confirm('4P分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['4p'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setFourpModal('menu');
+            };
+
+            // --- 4P: ファイル読込 ---
+            const handleFourpFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setFourpText(String(reader.result || '')); setFourpError(''); };
+                reader.onerror = () => setFourpError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
+            // --- 7S: 取込確定 ---
+            const importSevens = () => {
+                const res = parseResultJson(sevensText, '7s', '7S分析');
+                if (!res.ok) { setSevensError(res.error); return; }
+                const next = { ...results, '7s': res.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setSevensError('');
+                setSevensText('');
+                setToast('7S分析を取り込みました');
+                setSevensModal('result');
+            };
+
+            // --- 7S: 結果削除 ---
+            const deleteSevens = () => {
+                if (!window.confirm('7S分析の取込結果を削除します。よろしいですか？')) return;
+                const next = { ...results };
+                delete next['7s'];
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (e) { console.warn('結果の保存に失敗:', e); }
+                setSevensModal('menu');
+            };
+
+            // --- 7S: ファイル読込 ---
+            const handleSevensFile = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setSevensText(String(reader.result || '')); setSevensError(''); };
+                reader.onerror = () => setSevensError('ファイルの読み込みに失敗しました。');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+            const SETTINGS_PASSWORD = '5038';
             const openSettings = () => {
+                const input = window.prompt('設定を開くにはパスワードを入力してください');
+                if (input === null) return; // キャンセル
+                if (input !== SETTINGS_PASSWORD) {
+                    setToast('パスワードが違います');
+                    return;
+                }
                 setTempUrls(urls);
                 setIsSettingsOpen(true);
             };
@@ -685,20 +943,20 @@
                     環境分析から戦略実行までの全体フロー
                     </p>
                     <p className="text-sm text-slate-500 bg-white inline-block px-4 py-1.5 rounded-full shadow-sm border border-slate-200">
-                        👆 各分析をクリックするとテンプレート（Geminiチャット）が開きます／PESTELは分析メニューが開きます
+                        👆 各分析をクリックするとAIとの対話ができます／［プロンプト］をクリックすると質問をAIが作成してくれます
                     </p>
                 </header>
 
                 {/* 基本情報カード */}
                 <div className="max-w-3xl mx-auto mb-8">
                     {basicRegistered ? (
-                        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 flex items-center justify-between gap-3">
+                        <div className="bg-blue-50 rounded-xl shadow-sm border border-blue-200 p-4 flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                                <div className="text-xs text-slate-400 font-bold mb-0.5">分析対象</div>
-                                <div className="text-slate-800 font-bold truncate">{basicInfo.subject}</div>
-                                <div className="text-xs text-slate-500 truncate">{[basicInfo.industry, basicInfo.business].filter(Boolean).join(' / ')}</div>
+                                <div className="text-xs text-blue-500 font-bold mb-0.5">分析対象</div>
+                                <div className="text-blue-900 font-bold truncate">{basicInfo.subject}</div>
+                                <div className="text-xs text-blue-600 truncate">{[basicInfo.industry, basicInfo.business].filter(Boolean).join(' / ')}</div>
                             </div>
-                            <button onClick={openBasic} className="shrink-0 px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                            <button onClick={openBasic} className="shrink-0 px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors text-sm">
                                 基本情報を編集
                             </button>
                         </div>
@@ -906,30 +1164,41 @@
                         {/* Basic Strategy */}
                         <div 
                         className="flex-1 bg-white rounded-xl shadow-md border-t-8 border-cyan-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                        onClick={() => handleAnalysisClick('strategy')}
-                        title="詳細ページへ移動"
+                        onClick={() => { setStrategyModal(strategyResult ? 'result' : 'menu'); setStrategyError(''); }}
+                        title="クリックしてメニューを開く"
                         >
                         <div className="flex items-center gap-2 mb-3">
                             <IconZap size={24} className="text-cyan-600" />
                             <h2 className="text-xl font-bold text-slate-800">基本競争戦略</h2>
-                            <span className="text-[10px] font-normal text-cyan-400 border border-cyan-200 rounded px-1 ml-auto">Click</span>
+                            {strategyResult ? (
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded ml-auto">✓ {String(strategyResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                            ) : (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded ml-auto">未取込</span>
+                            )}
                         </div>
                         <p className="text-sm text-slate-600 mb-4">どのポジションで戦うか？</p>
                         <div className="mb-3"><PromptButton onClick={() => openPrompt('strategy')} /></div>
-                        <ul className="space-y-2 text-sm">
-                            <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
-                            コスト・リーダーシップ
-                            </li>
-                            <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
-                            差別化（独自性）
-                            </li>
-                            <li className="flex items-center gap-2">
-                            <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
-                            集中（ニッチ）
-                            </li>
-                        </ul>
+                        {strategyResult && strategyResult.data && strategyResult.data.position ? (
+                            <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3 text-center">
+                                <div className="text-[10px] text-cyan-500 font-bold mb-0.5">採用ポジション</div>
+                                <div className="text-lg font-bold text-cyan-800">{strategyResult.data.position}</div>
+                            </div>
+                        ) : (
+                            <ul className="space-y-2 text-sm">
+                                <li className="flex items-center gap-2">
+                                <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                                コスト・リーダーシップ
+                                </li>
+                                <li className="flex items-center gap-2">
+                                <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                                差別化（独自性）
+                                </li>
+                                <li className="flex items-center gap-2">
+                                <span className="w-3 h-3 bg-cyan-500 rounded-full"></span>
+                                集中（ニッチ）
+                                </li>
+                            </ul>
+                        )}
                         </div>
                     </div>
                     
@@ -937,8 +1206,8 @@
                     <div className="relative flex flex-col items-center mb-12">
                         <div 
                             className="w-full max-w-3xl bg-white rounded-xl shadow-md border-l-8 border-violet-500 overflow-hidden hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200" 
-                            onClick={() => handleAnalysisClick('bmc')}
-                            title="詳細ページへ移動"
+                            onClick={() => { setBmcModal(bmcResult ? 'result' : 'menu'); setBmcError(''); }}
+                            title="クリックしてメニューを開く"
                         >
                             <div className="p-6">
                                 <div className="flex justify-between items-center mb-2">
@@ -947,7 +1216,14 @@
                                         ビジネスモデルキャンバス
                                         <span className="text-xs font-normal text-violet-400 border border-violet-200 rounded px-1">Click to Open</span>
                                     </h2>
-                                    <span className="text-xs font-semibold bg-violet-100 text-violet-800 px-2 py-1 rounded">ビジネスの全体設計</span>
+                                    <div className="flex items-center gap-2">
+                                        {bmcResult ? (
+                                            <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済 {String(bmcResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                        ) : (
+                                            <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                        )}
+                                        <span className="text-xs font-semibold bg-violet-100 text-violet-800 px-2 py-1 rounded">ビジネスの全体設計</span>
+                                    </div>
                                 </div>
                                 <p className="text-slate-600 mb-4 text-sm">決定した戦略をもとに、「誰に」「何を」「どうやって提供し」「どう儲けるか」を1枚の図に統合する。</p>
                                 <div className="mb-3"><PromptButton onClick={() => openPrompt('bmc')} /></div>
@@ -970,6 +1246,9 @@
                                     <div className="col-span-2 bg-slate-100 border border-slate-200 rounded p-1 flex flex-col justify-center">コスト構造 (C$)</div>
                                     <div className="col-span-3 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded p-1 flex flex-col justify-center">収益の流れ (R$)</div>
                                 </div>
+                                {bmcResult && bmcResult.summary && (
+                                    <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{bmcResult.summary}</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -991,12 +1270,19 @@
                         {/* 4P Analysis */}
                         <div 
                             className="flex-1 bg-white rounded-xl shadow-md border-b-8 border-amber-500 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                            onClick={() => handleAnalysisClick('4p')}
-                            title="詳細ページへ移動"
+                            onClick={() => { setFourpModal(fourpResult ? 'result' : 'menu'); setFourpError(''); }}
+                            title="クリックしてメニューを開く"
                         >
                             <div className="flex justify-between items-center mb-3">
                             <h2 className="text-2xl font-bold text-amber-800">4P分析</h2>
-                            <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-bold">マーケティング</span>
+                            <div className="flex items-center gap-2">
+                                {fourpResult ? (
+                                    <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ {String(fourpResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                ) : (
+                                    <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                )}
+                                <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded font-bold">マーケティング</span>
+                            </div>
                             </div>
                             <p className="text-slate-600 mb-4 text-sm">顧客に届けるための具体的戦術</p>
                             <div className="mb-3"><PromptButton onClick={() => openPrompt('4p')} /></div>
@@ -1018,17 +1304,27 @@
                                 <div className="text-xs text-slate-500">販促・広告</div>
                                 </div>
                             </div>
+                            {fourpResult && fourpResult.summary && (
+                                <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{fourpResult.summary}</p>
+                            )}
                         </div>
 
                         {/* 7S Analysis */}
                         <div 
                             className="flex-1 bg-white rounded-xl shadow-md border-b-8 border-orange-600 p-6 hover:shadow-xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                            onClick={() => handleAnalysisClick('7s')}
-                            title="詳細ページへ移動"
+                            onClick={() => { setSevensModal(sevensResult ? 'result' : 'menu'); setSevensError(''); }}
+                            title="クリックしてメニューを開く"
                         >
                             <div className="flex justify-between items-center mb-3">
                             <h2 className="text-2xl font-bold text-orange-800">7S分析</h2>
-                            <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-bold">組織マネジメント</span>
+                            <div className="flex items-center gap-2">
+                                {sevensResult ? (
+                                    <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ {String(sevensResult.analyzedAt || '').slice(5).replace('-', '/')}</span>
+                                ) : (
+                                    <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                )}
+                                <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded font-bold">組織マネジメント</span>
+                            </div>
                             </div>
                             <p className="text-slate-600 mb-4 text-sm">戦略を実行できる組織体制か？</p>
                             <div className="mb-3"><PromptButton onClick={() => openPrompt('7s')} /></div>
@@ -1046,10 +1342,47 @@
                                 </div>
                             </div>
                             </div>
+                            {sevensResult && sevensResult.summary && (
+                                <p className="text-xs text-slate-500 mt-3 border-t border-slate-100 pt-2 line-clamp-2">{sevensResult.summary}</p>
+                            )}
                         </div>
 
                         </div>
                     </div>
+                    </div>
+
+                    {/* 課題解決イノベーター（全フェーズ俯瞰・独立カード） */}
+                    <div className="mt-16">
+                        <div className="text-center mb-4">
+                            <span className="text-xs font-bold text-fuchsia-500 tracking-wider uppercase">Cross-Industry Innovation</span>
+                            <h3 className="text-lg font-bold text-slate-700">分析を超えて、発想を飛ばす</h3>
+                        </div>
+                        <div
+                            className="w-full bg-gradient-to-br from-fuchsia-500 via-purple-500 to-indigo-500 rounded-2xl shadow-lg p-0.5 hover:shadow-2xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
+                            onClick={() => handleAnalysisClick('innovator')}
+                            title="クリックしてCanvasを開く"
+                        >
+                            <div className="bg-white rounded-2xl p-6">
+                                <div className="flex justify-between items-start mb-2">
+                                    <h2 className="text-2xl font-bold flex items-center gap-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 bg-clip-text text-transparent">
+                                        <IconZap size={26} className="text-fuchsia-500" />
+                                        課題解決イノベーター
+                                    </h2>
+                                    <span className="text-xs font-semibold bg-fuchsia-100 text-fuchsia-700 px-2 py-1 rounded">アイデア発想</span>
+                                </div>
+                                <p className="text-slate-600 mb-4 text-sm">これまでの分析で見えた課題を、<b>他業種の成功事例の仕組み</b>を応用して解決する。AIと対話しながら画期的なアイデアを引き出します。</p>
+                                <div className="flex items-center gap-3 flex-wrap">
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleAnalysisClick('innovator'); }}
+                                        className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 text-white font-bold rounded-lg hover:opacity-90 transition-opacity text-sm shadow"
+                                    >
+                                        <IconZap size={16} /> Canvasでアイデアを出す
+                                    </button>
+                                    <PromptButton onClick={() => openPrompt('innovator')} />
+                                    <span className="text-xs text-slate-400">※ このカードは結果の取り込み対象外です</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Matrix / Summary Footer */}
@@ -1784,6 +2117,545 @@
                                                     className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
                                                 <button onClick={() => setSwotModal(null)}
                                                     className="px-6 py-2 bg-teal-600 text-white font-bold hover:bg-teal-700 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 基本競争戦略 詳細モーダル */}
+                {strategyModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setStrategyModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-cyan-700 flex items-center gap-2">
+                                    <IconZap size={20} />
+                                    基本競争戦略
+                                    {strategyResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setStrategyModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {strategyModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('strategy')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition-colors text-sm">
+                                            <IconZap size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setStrategyModal('import'); setStrategyError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {strategyResult && (
+                                            <button onClick={() => setStrategyModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {strategyModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={strategyText}
+                                            onChange={(e) => { setStrategyText(e.target.value); setStrategyError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "strategy", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                                        {strategyError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{strategyError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleStrategyFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setStrategyModal(strategyResult ? 'result' : 'menu'); setStrategyError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importStrategy} disabled={!strategyText.trim()}
+                                                    className="px-6 py-2 bg-cyan-600 text-white font-bold hover:bg-cyan-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー */}
+                                {strategyModal === 'result' && strategyResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{strategyResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{strategyResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{strategyResult.summary}</p>
+                                        </div>
+
+                                        {/* ポジションを大きく表示 */}
+                                        <div className="bg-gradient-to-br from-cyan-500 to-cyan-600 rounded-xl p-6 text-center text-white shadow">
+                                            <div className="text-xs font-bold text-cyan-100 mb-1">採用する競争ポジション</div>
+                                            <div className="text-3xl font-bold">{strategyResult.data.position || '—'}</div>
+                                        </div>
+
+                                        {strategyResult.data.rationale && (
+                                            <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                                <div className="bg-slate-100 px-3 py-1.5 text-sm font-bold text-slate-700">選定理由</div>
+                                                <p className="px-3 py-2 text-sm text-slate-700">{strategyResult.data.rationale}</p>
+                                            </div>
+                                        )}
+
+                                        {Array.isArray(strategyResult.data.actions) && strategyResult.data.actions.length > 0 && (
+                                            <div className="border border-slate-200 rounded-lg overflow-hidden">
+                                                <div className="bg-cyan-50 px-3 py-1.5 text-sm font-bold text-cyan-800">具体アクション</div>
+                                                <ul className="px-3 py-2 space-y-1">
+                                                    {strategyResult.data.actions.map((a, i) => (
+                                                        <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                            <span className="w-5 h-5 bg-cyan-100 text-cyan-700 rounded-full text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                                                            <span className="pt-0.5">{a}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteStrategy}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setStrategyText(''); setStrategyError(''); setStrategyModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setStrategyModal(null)}
+                                                    className="px-6 py-2 bg-cyan-600 text-white font-bold hover:bg-cyan-700 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* BMC 詳細モーダル */}
+                {bmcModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setBmcModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-violet-700 flex items-center gap-2">
+                                    <IconLayoutTemplate size={20} />
+                                    ビジネスモデルキャンバス
+                                    {bmcResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setBmcModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {bmcModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('bmc')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-violet-600 text-white font-bold rounded-lg hover:bg-violet-700 transition-colors text-sm">
+                                            <IconLayoutTemplate size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setBmcModal('import'); setBmcError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {bmcResult && (
+                                            <button onClick={() => setBmcModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {bmcModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={bmcText}
+                                            onChange={(e) => { setBmcText(e.target.value); setBmcError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "bmc", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                                        {bmcError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{bmcError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleBmcFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setBmcModal(bmcResult ? 'result' : 'menu'); setBmcError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importBmc} disabled={!bmcText.trim()}
+                                                    className="px-6 py-2 bg-violet-600 text-white font-bold hover:bg-violet-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー（9ブロック） */}
+                                {bmcModal === 'result' && bmcResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{bmcResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{bmcResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{bmcResult.summary}</p>
+                                        </div>
+
+                                        {(() => {
+                                            const d = bmcResult.data || {};
+                                            const Cell = ({ label, keyName, accent }) => {
+                                                const items = Array.isArray(d[keyName]) ? d[keyName] : [];
+                                                return (
+                                                    <div className={"border rounded-lg overflow-hidden " + (accent ? "border-violet-300" : "border-slate-200")}>
+                                                        <div className={"px-2 py-1 text-[11px] font-bold " + (accent ? "bg-violet-100 text-violet-800" : "bg-slate-100 text-slate-600")}>{label}</div>
+                                                        {items.length === 0 ? (
+                                                            <div className="px-2 py-1.5 text-[11px] text-slate-300">（記載なし）</div>
+                                                        ) : (
+                                                            <ul className="px-2 py-1.5 space-y-0.5">
+                                                                {items.map((it, i) => (
+                                                                    <li key={i} className="text-xs text-slate-700 flex items-start gap-1">
+                                                                        <span className="w-1 h-1 bg-slate-400 rounded-full mt-1.5 shrink-0"></span>
+                                                                        <span>{it}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                );
+                                            };
+                                            return (
+                                                <div className="space-y-2">
+                                                    {/* 上段5列: KP / (KA,KR) / VP / (CR,CH) / CS */}
+                                                    <div className="grid grid-cols-1 md:grid-cols-5 gap-2">
+                                                        <Cell label="パートナー (KP)" keyName="kp" />
+                                                        <div className="space-y-2">
+                                                            <Cell label="主要活動 (KA)" keyName="ka" />
+                                                            <Cell label="リソース (KR)" keyName="kr" />
+                                                        </div>
+                                                        <Cell label="価値提案 (VP)" keyName="vp" accent />
+                                                        <div className="space-y-2">
+                                                            <Cell label="顧客との関係 (CR)" keyName="cr" />
+                                                            <Cell label="チャネル (CH)" keyName="ch" />
+                                                        </div>
+                                                        <Cell label="顧客セグメント (CS)" keyName="cs" />
+                                                    </div>
+                                                    {/* 下段2列: コスト / 収益 */}
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                        <Cell label="コスト構造" keyName="cost" />
+                                                        <Cell label="収益の流れ" keyName="revenue" />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteBmc}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setBmcText(''); setBmcError(''); setBmcModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setBmcModal(null)}
+                                                    className="px-6 py-2 bg-violet-600 text-white font-bold hover:bg-violet-700 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 4P 詳細モーダル */}
+                {fourpModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setFourpModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-amber-700 flex items-center gap-2">
+                                    <IconMegaphone size={20} />
+                                    4P分析
+                                    {fourpResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setFourpModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {fourpModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('4p')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors text-sm">
+                                            <IconMegaphone size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setFourpModal('import'); setFourpError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {fourpResult && (
+                                            <button onClick={() => setFourpModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {fourpModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={fourpText}
+                                            onChange={(e) => { setFourpText(e.target.value); setFourpError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "4p", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-amber-500" />
+                                        {fourpError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{fourpError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleFourpFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setFourpModal(fourpResult ? 'result' : 'menu'); setFourpError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importFourp} disabled={!fourpText.trim()}
+                                                    className="px-6 py-2 bg-amber-500 text-white font-bold hover:bg-amber-600 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー（4象限） */}
+                                {fourpModal === 'result' && fourpResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{fourpResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{fourpResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{fourpResult.summary}</p>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                            {[
+                                                ['product', 'Product', '製品・サービス'],
+                                                ['price', 'Price', '価格設定'],
+                                                ['place', 'Place', '流通・場所'],
+                                                ['promotion', 'Promotion', '販促・広告'],
+                                            ].map(([key, en, ja]) => {
+                                                const items = Array.isArray(fourpResult.data[key]) ? fourpResult.data[key] : [];
+                                                return (
+                                                    <div key={key} className="border border-amber-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-amber-50 px-3 py-1.5">
+                                                            <div className="text-sm font-bold text-amber-800">{en}</div>
+                                                            <div className="text-[10px] text-amber-500">{ja}</div>
+                                                        </div>
+                                                        {items.length === 0 ? (
+                                                            <div className="px-3 py-2 text-xs text-slate-400">（記載なし）</div>
+                                                        ) : (
+                                                            <ul className="px-3 py-2 space-y-1">
+                                                                {items.map((it, i) => (
+                                                                    <li key={i} className="text-sm text-slate-700 flex items-start gap-2">
+                                                                        <span className="w-1.5 h-1.5 bg-amber-400 rounded-full mt-1.5 shrink-0"></span>
+                                                                        <span>{it}</span>
+                                                                    </li>
+                                                                ))}
+                                                            </ul>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteFourp}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setFourpText(''); setFourpError(''); setFourpModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setFourpModal(null)}
+                                                    className="px-6 py-2 bg-amber-500 text-white font-bold hover:bg-amber-600 rounded shadow-sm text-sm">閉じる</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 7S 詳細モーダル */}
+                {sevensModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setSevensModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-orange-700 flex items-center gap-2">
+                                    <IconUsers size={20} />
+                                    7S分析
+                                    {sevensResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setSevensModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* メニュー */}
+                                {sevensModal === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
+                                        <button onClick={() => handleAnalysisClick('7s')}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors text-sm">
+                                            <IconUsers size={18} /> ① Canvasで分析する（別タブで開く）
+                                        </button>
+                                        <button onClick={() => { setSevensModal('import'); setSevensError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {sevensResult && (
+                                            <button onClick={() => setSevensModal('result')}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm">
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* 取込ビュー */}
+                                {sevensModal === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。</p>
+                                        <textarea value={sevensText}
+                                            onChange={(e) => { setSevensText(e.target.value); setSevensError(''); }}
+                                            placeholder='{ "schemaVersion": "1.0", "framework": "7s", ... } をここに貼り付け'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                                        {sevensError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{sevensError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleSevensFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setSevensModal(sevensResult ? 'result' : 'menu'); setSevensError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                                <button onClick={importSevens} disabled={!sevensText.trim()}
+                                                    className="px-6 py-2 bg-orange-600 text-white font-bold hover:bg-orange-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed">取り込む</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 結果ビュー（7項目テーブル＋整合性総評） */}
+                                {sevensModal === 'result' && sevensResult && (
+                                    <div className="space-y-4">
+                                        <div className="bg-slate-50 rounded-lg p-3 border border-slate-200">
+                                            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 mb-2">
+                                                <span>対象: <b className="text-slate-700">{sevensResult.subject || '—'}</b></span>
+                                                <span>分析日: <b className="text-slate-700">{sevensResult.analyzedAt || '—'}</b></span>
+                                            </div>
+                                            <p className="text-sm text-slate-700">{sevensResult.summary}</p>
+                                        </div>
+
+                                        {(() => {
+                                            const d = sevensResult.data || {};
+                                            const Row = ({ label, keyName }) => {
+                                                const s = d[keyName] || {};
+                                                return (
+                                                    <div className="border-b border-slate-100 last:border-0 px-3 py-2">
+                                                        <div className="text-sm font-bold text-orange-800 mb-1">{label}</div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                            <div className="text-xs">
+                                                                <span className="text-slate-400">現状: </span>
+                                                                <span className="text-slate-700">{s.current || '—'}</span>
+                                                            </div>
+                                                            <div className="text-xs">
+                                                                <span className="text-rose-400">課題: </span>
+                                                                <span className="text-slate-700">{s.issue || '—'}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            };
+                                            return (
+                                                <div className="space-y-3">
+                                                    <div className="border border-orange-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-orange-100 px-3 py-1.5 text-xs font-bold text-orange-700">ハードの3S</div>
+                                                        <Row label="Strategy（戦略）" keyName="strategy" />
+                                                        <Row label="Structure（組織構造）" keyName="structure" />
+                                                        <Row label="Systems（システム・制度）" keyName="systems" />
+                                                    </div>
+                                                    <div className="border border-amber-200 rounded-lg overflow-hidden">
+                                                        <div className="bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700">ソフトの4S</div>
+                                                        <Row label="Shared Values（共通の価値観）" keyName="sharedValues" />
+                                                        <Row label="Skills（スキル・強み）" keyName="skills" />
+                                                        <Row label="Staff（人材）" keyName="staff" />
+                                                        <Row label="Style（経営スタイル・風土）" keyName="style" />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        {sevensResult.data.alignment && (
+                                            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                                                <div className="text-xs font-bold text-orange-700 mb-1">7Sの整合性・総評</div>
+                                                <p className="text-sm text-slate-700">{sevensResult.data.alignment}</p>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between gap-3 pt-2 border-t border-slate-200">
+                                            <button onClick={deleteSevens}
+                                                className="px-4 py-2 text-rose-600 font-bold hover:bg-rose-50 rounded text-sm">結果を削除</button>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => { setSevensText(''); setSevensError(''); setSevensModal('import'); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">取り込み直す</button>
+                                                <button onClick={() => setSevensModal(null)}
+                                                    className="px-6 py-2 bg-orange-600 text-white font-bold hover:bg-orange-700 rounded shadow-sm text-sm">閉じる</button>
                                             </div>
                                         </div>
                                     </div>
