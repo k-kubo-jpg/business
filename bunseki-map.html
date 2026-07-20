@@ -963,31 +963,57 @@
                 setToast('すべてのデータを削除しました');
             };
 
-            // --- 全結果をJSONエクスポート（基本情報＋8分析すべて） ---
-            const exportAllData = () => {
+            // --- 全結果をJSONエクスポート（基本情報＋8分析すべて / モバイル対応） ---
+            const exportAllData = async () => {
                 const payload = {
                     appVersion: '1.0',
                     exportedAt: new Date().toISOString(),
                     basicInfo,
                     results,
                 };
+                const jsonStr = JSON.stringify(payload, null, 2);
+                const dateStr = todayStr().replace(/-/g, '');
+                const nameStr = (basicInfo.subject || '分析データ').replace(/[\\/:*?"<>|]/g, '_');
+                const filename = `分析統合マップ_${nameStr}_${dateStr}.json`;
+
+                // モバイル判定：モバイルではWeb Share API（共有シート）を優先。
+                // iOS SafariやAndroid Chromeで、Files/Drive/メール等に保存できる標準UIが出る。
+                const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+                if (isMobile && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+                    try {
+                        const file = new File([jsonStr], filename, { type: 'application/json' });
+                        if (navigator.canShare({ files: [file] })) {
+                            setToast('保存先を選択してください');
+                            await navigator.share({ files: [file], title: filename });
+                            setToast('保存しました');
+                            return;
+                        }
+                    } catch (e) {
+                        if (e && e.name === 'AbortError') {
+                            // ユーザーがキャンセル
+                            setToast('');
+                            return;
+                        }
+                        console.warn('Web Share失敗、通常ダウンロードへフォールバック:', e);
+                        // フォールバックへ続行
+                    }
+                }
+
+                // デスクトップ or Web Share非対応: 従来のダウンロード
                 try {
-                    // 「しばらくお待ちください」トーストを sticky で表示
                     setToastSticky(true);
                     setToast('全データをJSON形式で保存します。しばらくお待ちください。');
 
-                    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                    // モバイルで「外部アプリで開く」誤動作を避けるためoctet-streamを使う
+                    const mime = isMobile ? 'application/octet-stream' : 'application/json';
+                    const blob = new Blob([jsonStr], { type: mime });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    const dateStr = todayStr().replace(/-/g, '');
-                    const nameStr = (basicInfo.subject || '分析データ').replace(/[\\/:*?"<>|]/g, '_');
                     a.href = url;
-                    a.download = `分析統合マップ_${nameStr}_${dateStr}.json`;
+                    a.download = filename;
                     document.body.appendChild(a);
 
-                    // ダウンロードダイアログが出るとwindowのフォーカスが外れる。
-                    // それを検知して sticky トーストを解除する。
-                    // 自動ダウンロード設定でダイアログが出ないケースに備え、フォールバックタイマも用意。
+                    // ダイアログ出現をblurで検知して sticky トーストを解除
                     let fallbackTimer;
                     const dismissSticky = () => {
                         setToastSticky(false);
@@ -996,7 +1022,7 @@
                         if (fallbackTimer) clearTimeout(fallbackTimer);
                     };
                     window.addEventListener('blur', dismissSticky);
-                    fallbackTimer = setTimeout(dismissSticky, 20000); // 20秒経ったら強制解除
+                    fallbackTimer = setTimeout(dismissSticky, 20000);
 
                     a.click();
                     // Blob URLの解放を遅延させる（即座に revoke するとダイアログ表示が遅延することがある）
