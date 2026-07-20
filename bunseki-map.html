@@ -1062,8 +1062,8 @@
                 <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800 relative">
                 
                 {/* Header */}
-                <header className="max-w-4xl mx-auto text-center mb-10 relative">
-                    <div className="absolute right-0 top-0 flex items-start gap-1">
+                <header className="max-w-4xl mx-auto text-center mb-10 md:relative">
+                    <div className="flex items-start justify-center gap-1 mb-4 md:mb-0 md:absolute md:right-0 md:top-0">
                         <button
                             onClick={exportAllData}
                             disabled={completedCount === 0 && !basicRegistered}
