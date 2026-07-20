@@ -1761,11 +1761,9 @@
                                         <p className="text-sm text-slate-600 mb-4">
                                             ①Canvasで分析し、出力されたJSONを②で取り込みます。
                                         </p>
-                                        <button
-                                            onClick={() => handleAnalysisClick('pestel')}
-                                            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors text-sm"
-                                        >
-                                            <IconGlobe size={18} /> ① Canvasで分析する（別タブで開く）
+                                        <button onClick={() => { setPestelModal(null); openPrompt('pestel'); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                                            <IconGlobe size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button
                                             onClick={() => { setPestelModal('import'); setImportError(''); }}
@@ -1930,9 +1928,9 @@
                                 {forcesModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('5forces')}
+                                        <button onClick={() => { setForcesModal(null); openPrompt('5forces'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors text-sm">
-                                            <IconShieldAlert size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconShieldAlert size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setForcesModal('import'); setForcesError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2075,9 +2073,9 @@
                                 {threecModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('3c')}
+                                        <button onClick={() => { setThreecModal(null); openPrompt('3c'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition-colors text-sm">
-                                            <IconTarget size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconTarget size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setThreecModal('import'); setThreecError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2218,9 +2216,9 @@
                                 {swotModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('swot')}
+                                        <button onClick={() => { setSwotModal(null); openPrompt('swot'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 transition-colors text-sm">
-                                            <IconActivity size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconActivity size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setSwotModal('import'); setSwotError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2381,9 +2379,9 @@
                                 {strategyModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('strategy')}
+                                        <button onClick={() => { setStrategyModal(null); openPrompt('strategy'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition-colors text-sm">
-                                            <IconZap size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconZap size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setStrategyModal('import'); setStrategyError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2505,9 +2503,9 @@
                                 {bmcModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('bmc')}
+                                        <button onClick={() => { setBmcModal(null); openPrompt('bmc'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-violet-600 text-white font-bold rounded-lg hover:bg-violet-700 transition-colors text-sm">
-                                            <IconLayoutTemplate size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconLayoutTemplate size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setBmcModal('import'); setBmcError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2649,9 +2647,9 @@
                                 {fourpModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('4p')}
+                                        <button onClick={() => { setFourpModal(null); openPrompt('4p'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-amber-500 text-white font-bold rounded-lg hover:bg-amber-600 transition-colors text-sm">
-                                            <IconMegaphone size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconMegaphone size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setFourpModal('import'); setFourpError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
@@ -2777,9 +2775,9 @@
                                 {sevensModal === 'menu' && (
                                     <div className="space-y-3">
                                         <p className="text-sm text-slate-600 mb-4">①Canvasで分析し、出力されたJSONを②で取り込みます。</p>
-                                        <button onClick={() => handleAnalysisClick('7s')}
+                                        <button onClick={() => { setSevensModal(null); openPrompt('7s'); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition-colors text-sm">
-                                            <IconUsers size={18} /> ① Canvasで分析する（別タブで開く）
+                                            <IconUsers size={18} /> ① Canvasで分析する（プロンプトをコピーすると最初の質問を省略できます）
                                         </button>
                                         <button onClick={() => { setSevensModal('import'); setSevensError(''); }}
                                             className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm">
