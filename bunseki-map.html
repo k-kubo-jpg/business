@@ -452,6 +452,12 @@
         const IconTrash = ({ size = 24, className = "" }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
         );
+        const IconDownload = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+        );
+        const IconUpload = ({ size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+        );
 
         // カード内に重ねるプロンプトコピー小ボタン（カード本体クリックを止める）
         const PromptButton = ({ onClick }) => (
@@ -956,6 +962,66 @@
                 setToast('すべてのデータを削除しました');
             };
 
+            // --- 全結果をJSONエクスポート（基本情報＋8分析すべて） ---
+            const exportAllData = () => {
+                const payload = {
+                    appVersion: '1.0',
+                    exportedAt: new Date().toISOString(),
+                    basicInfo,
+                    results,
+                };
+                try {
+                    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const dateStr = todayStr().replace(/-/g, '');
+                    const nameStr = (basicInfo.subject || '分析データ').replace(/[\\/:*?"<>|]/g, '_');
+                    a.href = url;
+                    a.download = `分析統合マップ_${nameStr}_${dateStr}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setToast('全結果をJSONで書き出しました');
+                } catch (e) {
+                    console.warn('エクスポートに失敗:', e);
+                    setToast('エクスポートに失敗しました');
+                }
+            };
+
+            // --- 全結果をJSONインポート（基本情報＋8分析すべてを上書き復元） ---
+            const importAllData = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    let obj;
+                    try {
+                        obj = JSON.parse(String(reader.result || ''));
+                    } catch (err) {
+                        setToast('JSONとして読み取れませんでした');
+                        return;
+                    }
+                    if (!obj || typeof obj !== 'object' || !obj.results) {
+                        setToast('このマップのエクスポート形式ではありません');
+                        return;
+                    }
+                    if (!window.confirm('現在の基本情報・分析結果をすべて、このファイルの内容で上書きします。よろしいですか？')) return;
+                    const restoredBasic = { ...EMPTY_BASIC, ...(obj.basicInfo || {}) };
+                    const restoredResults = obj.results || {};
+                    setBasicInfo(restoredBasic);
+                    setResults(restoredResults);
+                    try {
+                        localStorage.setItem(BASIC_INFO_KEY, JSON.stringify(restoredBasic));
+                        localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(restoredResults));
+                    } catch (err) { console.warn('復元の保存に失敗:', err); }
+                    setToast('データを復元しました');
+                };
+                reader.onerror = () => setToast('ファイルの読み込みに失敗しました');
+                reader.readAsText(file, 'utf-8');
+                e.target.value = '';
+            };
+
             // URL入力ハンドラ
             const handleUrlChange = (id, value) => {
                 setTempUrls(prev => ({...prev, [id]: value}));
@@ -998,6 +1064,23 @@
                 {/* Header */}
                 <header className="max-w-4xl mx-auto text-center mb-10 relative">
                     <div className="absolute right-0 top-0 flex items-start gap-1">
+                        <button
+                            onClick={exportAllData}
+                            disabled={completedCount === 0 && !basicRegistered}
+                            className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors flex flex-col items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                            title="すべてのデータをJSONで保存"
+                        >
+                            <IconDownload size={24} />
+                            <span className="text-[10px] font-bold">保存</span>
+                        </button>
+                        <label
+                            className="p-2 text-slate-500 hover:text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors flex flex-col items-center gap-1 cursor-pointer"
+                            title="保存したJSONを読み込む"
+                        >
+                            <IconUpload size={24} />
+                            <span className="text-[10px] font-bold">読込</span>
+                            <input type="file" accept=".json,application/json" onChange={importAllData} className="hidden" />
+                        </label>
                         <button 
                             onClick={clearAllData}
                             className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-100 rounded-lg transition-colors flex flex-col items-center gap-1"
@@ -1478,6 +1561,16 @@
                                         {lastUpdated && <span className="ml-3">最終分析日: {lastUpdated}</span>}
                                     </p>
                                 )}
+                                <div className="flex items-center gap-3 mt-2 text-xs">
+                                    <button onClick={exportAllData} disabled={completedCount === 0 && !basicRegistered}
+                                        className="text-slate-500 hover:text-slate-700 underline disabled:opacity-30 disabled:cursor-not-allowed">
+                                        全結果をJSONで書き出す
+                                    </button>
+                                    <label className="text-slate-500 hover:text-slate-700 underline cursor-pointer">
+                                        JSONから復元する
+                                        <input type="file" accept=".json,application/json" onChange={importAllData} className="hidden" />
+                                    </label>
+                                </div>
                             </div>
                             <div className="flex items-center gap-3">
                                 <div className="text-right">
