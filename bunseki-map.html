@@ -980,8 +980,12 @@
                     a.download = `分析統合マップ_${nameStr}_${dateStr}.json`;
                     document.body.appendChild(a);
                     a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                    // ブラウザがダウンロードを開始する時間を確保してから解放する
+                    // （即座にrevokeするとダイアログ表示が遅延することがある）
+                    setTimeout(() => {
+                        try { document.body.removeChild(a); } catch (e) {}
+                        URL.revokeObjectURL(url);
+                    }, 3000);
                     setToast('全結果をJSONで書き出しました');
                 } catch (e) {
                     console.warn('エクスポートに失敗:', e);
