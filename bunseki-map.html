@@ -986,7 +986,7 @@
                         try { document.body.removeChild(a); } catch (e) {}
                         URL.revokeObjectURL(url);
                     }, 3000);
-                    setToast('全結果をJSONで書き出しました');
+                    setToast('全データをJSON形式で保存します。しばらくお待ちください。');
                 } catch (e) {
                     console.warn('エクスポートに失敗:', e);
                     setToast('エクスポートに失敗しました');
