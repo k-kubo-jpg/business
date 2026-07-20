@@ -497,6 +497,7 @@
             const [importText, setImportText] = useState('');     // 取込テキストエリアの内容
             const [importError, setImportError] = useState('');   // 取込エラー表示
             const [toast, setToast] = useState('');               // 成功トースト
+            const [toastSticky, setToastSticky] = useState(false); // trueの間は自動消去しない
 
             const pestelResult = results['pestel'] || null;
 
@@ -622,12 +623,12 @@
                 }
             };
 
-            // トーストの自動消去
+            // トーストの自動消去（sticky時はスキップ）
             useEffect(() => {
-                if (!toast) return;
+                if (!toast || toastSticky) return;
                 const t = setTimeout(() => setToast(''), 2500);
                 return () => clearTimeout(t);
-            }, [toast]);
+            }, [toast, toastSticky]);
 
             // --- PESTEL: 取込確定 ---
             const importPestel = () => {
@@ -971,6 +972,10 @@
                     results,
                 };
                 try {
+                    // 「しばらくお待ちください」トーストを sticky で表示
+                    setToastSticky(true);
+                    setToast('全データをJSON形式で保存します。しばらくお待ちください。');
+
                     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -979,16 +984,29 @@
                     a.href = url;
                     a.download = `分析統合マップ_${nameStr}_${dateStr}.json`;
                     document.body.appendChild(a);
+
+                    // ダウンロードダイアログが出るとwindowのフォーカスが外れる。
+                    // それを検知して sticky トーストを解除する。
+                    // 自動ダウンロード設定でダイアログが出ないケースに備え、フォールバックタイマも用意。
+                    let fallbackTimer;
+                    const dismissSticky = () => {
+                        setToastSticky(false);
+                        setToast('');
+                        window.removeEventListener('blur', dismissSticky);
+                        if (fallbackTimer) clearTimeout(fallbackTimer);
+                    };
+                    window.addEventListener('blur', dismissSticky);
+                    fallbackTimer = setTimeout(dismissSticky, 20000); // 20秒経ったら強制解除
+
                     a.click();
-                    // ブラウザがダウンロードを開始する時間を確保してから解放する
-                    // （即座にrevokeするとダイアログ表示が遅延することがある）
+                    // Blob URLの解放を遅延させる（即座に revoke するとダイアログ表示が遅延することがある）
                     setTimeout(() => {
                         try { document.body.removeChild(a); } catch (e) {}
                         URL.revokeObjectURL(url);
                     }, 3000);
-                    setToast('全データをJSON形式で保存します。しばらくお待ちください。');
                 } catch (e) {
                     console.warn('エクスポートに失敗:', e);
+                    setToastSticky(false);
                     setToast('エクスポートに失敗しました');
                 }
             };
