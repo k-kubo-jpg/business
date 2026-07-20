@@ -2899,25 +2899,27 @@
                                 <button onClick={() => setIsBasicOpen(false)} className="text-slate-500 hover:text-slate-800 p-1"><IconX size={24} /></button>
                             </div>
                             <div className="p-6 overflow-y-auto flex-1">
-                                <p className="text-sm text-slate-600 mb-4">分析対象の情報を登録します。各分析の「プロンプト」ボタンで生成される文面に自動で含まれます。</p>
+                                <p className="text-sm text-slate-600 mb-4">分析対象の情報を登録します。各分析の「プロンプト」ボタンで生成される文面に自動で含まれます。<span className="text-slate-400">具体的に書くほど、AIの分析が的確になります。</span></p>
                                 <div className="space-y-3">
                                     {[
-                                        ['subject', '会社名・事業名', true],
-                                        ['industry', '業種', true],
-                                        ['location', '所在地', false],
-                                        ['size', '規模（従業員数・売上など）', false],
-                                        ['business', '事業内容', true],
-                                        ['issues', '現状の課題', false],
-                                        ['memo', '補足メモ', false],
-                                    ].map(([k, label, req]) => (
+                                        ['subject', '会社名・事業名', true, '例：株式会社サンプル製作所'],
+                                        ['industry', '業種', true, '例：金属加工業（特殊溶接）／地域向け税理士業／建設業（土木）'],
+                                        ['location', '所在地', false, '例：岩手県釜石市（三陸沿岸エリア）'],
+                                        ['size', '規模（従業員数・売上など）', false, '例：従業員12名・年商1.8億円／個人事業・スタッフ3名'],
+                                        ['business', '事業内容', true, '例：地域の中小企業向けに税務顧問業務を提供。特に電帳法・インボイス対応の実務支援と、事業承継コンサルに強み。顧問先は約60社。'],
+                                        ['issues', '現状の課題', false, '例：後継者が不在で高齢化が進んでいる／価格競争が激しく単価が下がっている／若手の採用が難しい／DX対応が遅れている'],
+                                        ['memo', '補足メモ', false, '例：3年前に代替わりし、現社長が二代目。地域内で紹介ルートが強い。Web発信はほぼしていない。'],
+                                    ].map(([k, label, req, placeholder]) => (
                                         <div key={k} className="flex flex-col gap-1">
                                             <label className="text-sm font-bold text-slate-700">{label}{req && <span className="text-rose-500 ml-1">*</span>}</label>
                                             {k === 'business' || k === 'issues' || k === 'memo' ? (
                                                 <textarea value={tempBasic[k]} onChange={(e) => handleBasicChange(k, e.target.value)}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm h-16" />
+                                                    placeholder={placeholder}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm h-16 placeholder:text-slate-300 placeholder:text-xs" />
                                             ) : (
                                                 <input type="text" value={tempBasic[k]} onChange={(e) => handleBasicChange(k, e.target.value)}
-                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+                                                    placeholder={placeholder}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm placeholder:text-slate-300 placeholder:text-xs" />
                                             )}
                                         </div>
                                     ))}
