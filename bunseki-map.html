@@ -44,11 +44,19 @@
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+            /* モーダルのfixed/sticky/overflowを解除しないと、絶対配置のレポートが
+               各ページに1ページ目を繰り返し描画してしまう。通常フローに戻して改ページさせる */
+            .fixed, .sticky {
+                position: static !important;
+                overflow: visible !important;
+            }
             #report-print-area {
-                position: absolute;
-                left: 0;
-                top: 0;
+                position: static !important;
                 width: 100%;
+            }
+            html, body {
+                height: auto !important;
+                overflow: visible !important;
             }
             .no-print {
                 display: none !important;
@@ -482,15 +490,15 @@
 
             // デフォルトのURL設定
             const defaultUrls = {
-                'pestel': 'https://gemini.google.com/share/d/10c6Qo6aFyUzOGwbTt5L6qqr6a9QpLbPn?usp=sharing',
-                '5forces': 'https://gemini.google.com/share/d/1-R3ztXFyRhY32-3Ju0e7eYLiJGh45TZG?usp=sharing',
-                '3c': 'https://gemini.google.com/share/d/1TmtRs1K--QdeR1e9L64pXa1pcSB2vFLc?usp=sharing',
-                'swot': 'https://gemini.google.com/share/d/1iZ1_DfVlwi2eKTt32yFWF64tECzYOQQ_?usp=drive_link',
-                'strategy': 'https://gemini.google.com/share/d/1Lfk1koa_QJu0EFhmN3SzEzmqBt6f3D_6?usp=sharing',
-                'bmc': 'https://gemini.google.com/share/d/1arqTHEBKt8aMmore1hk7iqkBfWH-QI96?usp=sharing',
-                '4p': 'https://gemini.google.com/share/d/1ej61YTg6DH_GtZwaqd3ySMlfsYV2nXbq?usp=sharing',
-                '7s': 'https://gemini.google.com/share/d/1BRuRd3_aBO89V3_62D6YDpRjx6cNtjqU?usp=drive_link',
-                'innovator': 'https://gemini.google.com/share/d/1athKtjWMRvytg_QGDEKm53W_d1gVg2Qp?usp=sharing'
+                'pestel': 'https://gemini.google.com/share/d/1S8Au-W0j22wN3hn52AI9CXnHLNcbnHG5?usp=sharing',
+                '5forces': 'https://gemini.google.com/share/d/1oQOHkVKmJMluK-YlQcimadIdc7KuuCz7?usp=sharing',
+                '3c': 'https://gemini.google.com/share/d/1EQZ9IQ7BYZ0C6GfS0RYRyj0Q4BhL0Pvt?usp=sharing',
+                'swot': 'https://gemini.google.com/share/d/1c8q_L6k2Kp26ZZZAczHANzrxcMuqO4hc?usp=sharing',
+                'strategy': 'https://gemini.google.com/share/d/1pXUaNakHBxUrqKUnsp1SEfHbXCbDfVMH?usp=sharing',
+                'bmc': 'https://gemini.google.com/share/d/17iIZa0iV6V6Ir5U69d5e098pZXVGwf8A?usp=sharing',
+                '4p': 'https://gemini.google.com/share/d/134vW1_5KZdypZa3sAnPO-7ePR7Ig9TAf?usp=sharing',
+                '7s': 'https://gemini.google.com/share/d/1aMxRbbA4_RREp6VydDHfpJUEqllsQ3iA?usp=sharing',
+                'innovator': 'https://gemini.google.com/share/d/1umzbA14WgFkMIfRXgTadM9k990MDlNkw?usp=sharing'
             };
 
             // 状態管理
@@ -581,15 +589,8 @@
 
             // 初期ロード時にローカルストレージから読み込み
             useEffect(() => {
-                const savedUrls = localStorage.getItem('frameworkUrls');
-                if (savedUrls) {
-                    try {
-                        const parsedUrls = JSON.parse(savedUrls);
-                        setUrls({ ...defaultUrls, ...parsedUrls });
-                    } catch(e) {
-                        console.error('Failed to parse URLs', e);
-                    }
-                }
+                // URLはコード側のdefaultUrlsを常に正とする（保存済みの古いURLで上書きしない）。
+                // 過去に設定画面で保存した端末でも、更新後のURLで確実に開くため復元しない。
                 // PESTEL等の分析結果を読み込み
                 setResults(loadResults());
                 // 基本情報を読み込み
@@ -948,10 +949,10 @@
                 setIsSettingsOpen(true);
             };
 
-            // 設定を保存する
+            // 設定を保存する（URLはコード側管理のため、編集はこのセッション内のみ有効。
+            // localStorageには残さない＝次回起動時は常にdefaultUrlsで開く）
             const saveSettings = () => {
                 setUrls(tempUrls);
-                localStorage.setItem('frameworkUrls', JSON.stringify(tempUrls));
                 setIsSettingsOpen(false);
             };
 
