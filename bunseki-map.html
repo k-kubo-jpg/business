@@ -560,6 +560,7 @@
 
             // --- 統合サマリー・印刷レポート用の状態 ---
             const [showReport, setShowReport] = useState(false);
+            const [manualUrl, setManualUrl] = useState('');       // モバイルで同一ページ表示するマニュアルのBlob URL
             const ORDER = ['pestel','5forces','3c','swot','strategy','bmc','4p','7s'];
             // 印刷レポート用: 分析ごとの淡いアクセント色とアイコン
             const REPORT_META = {
@@ -1104,16 +1105,32 @@
                 }
             };
 
-            // 同梱マニュアルをBlob URL化して別タブで開く
+            // 同梱マニュアルを開く。
+            // デスクトップ: Blob URLを別タブで開く。
+            // モバイル(iOS Safari等): window.openにBlob URLを渡すと新タブがabout:blankのまま
+            //   中身をロードしない既知の挙動があるため、同一ページ内のオーバーレイ(iframe)で表示する。
             const openManual = () => {
                 try {
                     const bytes = Uint8Array.from(atob(window.MANUAL_HTML_B64), c => c.charCodeAt(0));
                     const blob = new Blob([bytes], { type: 'text/html;charset=utf-8' });
-                    window.open(URL.createObjectURL(blob), '_blank', 'noopener,noreferrer');
+                    const url = URL.createObjectURL(blob);
+                    const isMobile = window.matchMedia('(pointer: coarse)').matches
+                        || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                    if (isMobile) {
+                        setManualUrl(url); // 同一ページ内オーバーレイで表示
+                    } else {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                    }
                 } catch (e) {
                     console.error('マニュアルを開けませんでした:', e);
                     alert('マニュアルを開けませんでした。');
                 }
+            };
+
+            // マニュアルオーバーレイを閉じる（Blob URLも解放）
+            const closeManual = () => {
+                if (manualUrl) { try { URL.revokeObjectURL(manualUrl); } catch (e) {} }
+                setManualUrl('');
             };
 
             // 外部リンク遷移機能（各分析カード用）
@@ -3034,6 +3051,20 @@
                                     className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm">クリップボードにコピー</button>
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* マニュアル表示オーバーレイ（モバイル用・別タブが開けない環境向け） */}
+                {manualUrl && (
+                    <div className="no-print fixed inset-0 bg-white z-[60] flex flex-col">
+                        <div className="flex justify-between items-center px-4 py-3 border-b border-slate-200 bg-white shrink-0">
+                            <h2 className="text-base font-bold text-slate-800">操作マニュアル</h2>
+                            <button onClick={closeManual}
+                                className="flex items-center gap-1 px-3 py-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors text-sm font-bold">
+                                <IconX size={20} /> 閉じる
+                            </button>
+                        </div>
+                        <iframe src={manualUrl} title="操作マニュアル" className="flex-1 w-full border-0" />
                     </div>
                 )}
 
