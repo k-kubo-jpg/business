@@ -1,0 +1,1288 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>KPI Express - スマホKPI管理</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body {
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased relative">
+
+  <!-- トースト通知コンテナ -->
+  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-xs space-y-2 pointer-events-none"></div>
+
+  <!-- カスタム確認ダイアログ (Modal) -->
+  <div id="custom-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm space-y-4 transform transition-all text-center">
+      <div id="modal-icon-container" class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto text-xl">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <div>
+        <h3 id="modal-title" class="text-base font-bold text-slate-800">確認</h3>
+        <p id="modal-message" class="text-xs text-slate-500 mt-1 leading-relaxed">本当に実行しますか？</p>
+      </div>
+      <div class="grid grid-cols-2 gap-2 pt-2">
+        <button onclick="closeModal()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+          キャンセル
+        </button>
+        <button id="modal-confirm-btn" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm">
+          実行する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPI編集モーダル -->
+  <div id="edit-kpi-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl p-5 w-full max-w-sm space-y-4 text-left">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-blue-500"></i> KPI情報を編集
+        </h3>
+        <button onclick="closeEditKPIModal()" class="text-slate-400 hover:text-slate-600 p-1">
+          <i class="fa-solid fa-xmark text-base"></i>
+        </button>
+      </div>
+      <input type="hidden" id="edit-kpi-id">
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">KPI名</label>
+          <input type="text" id="edit-kpi-title" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-600 mb-1">目標タイプ</label>
+          <select id="edit-kpi-direction" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <option value="increase">📈 増やす（売上・件数など）</option>
+            <option value="decrease">📉 減らす（クレーム・不良率など）</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block font-bold text-slate-600 mb-1">目標値</label>
+            <input type="number" id="edit-kpi-target" inputmode="decimal" step="any" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-600 mb-1">単位</label>
+            <input type="text" id="edit-kpi-unit" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 pt-2">
+        <button onclick="closeEditKPIModal()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+          キャンセル
+        </button>
+        <button onclick="saveEditedKPI()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm">
+          変更を保存
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 1. パスワード保護画面 (Auth Overlay) ==================== -->
+  <div id="auth-overlay" class="fixed inset-0 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4 z-40">
+    <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm text-center space-y-4 transform transition-all">
+      <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-inner">
+        <i class="fa-solid fa-lock"></i>
+      </div>
+      <div>
+        <h2 class="text-xl font-extrabold text-slate-800">KPI Express</h2>
+        <p class="text-xs text-slate-500 mt-1">パスワードを入力してログイン</p>
+      </div>
+      
+      <div class="space-y-2">
+        <input type="password" id="password-input" autofocus placeholder="パスワードを入力" 
+          onkeydown="if(event.key==='Enter') checkPassword()"
+          class="w-full border border-slate-200 rounded-xl px-4 py-3 text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
+        <button onclick="checkPassword()" 
+          class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition duration-150">
+          ログイン
+        </button>
+      </div>
+
+      <p id="error-msg" class="text-xs text-rose-500 font-medium hidden flex items-center justify-center gap-1">
+        <i class="fa-solid fa-circle-exclamation"></i> パスワードが違います
+      </p>
+
+      <div class="pt-2 border-t border-slate-100">
+        <span class="text-[10px] text-slate-400">初期パスワード: <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-600 font-mono">1234</code></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 2. メインアプリケーション ==================== -->
+  <div id="app-content" class="hidden flex-1 flex flex-col pb-20">
+    
+    <!-- アプリヘッダー -->
+    <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 px-4 py-3 flex items-center justify-between shadow-sm">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center font-bold text-sm shadow">
+          📊
+        </div>
+        <div>
+          <h1 class="font-bold text-sm leading-tight text-slate-800">KPI ダッシュボード</h1>
+          <p id="header-subtitle" class="text-[10px] text-slate-500">進捗状況の一覧</p>
+        </div>
+      </div>
+      <button onclick="logout()" class="text-xs text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
+        <i class="fa-solid fa-right-from-bracket"></i> ログアウト
+      </button>
+    </header>
+
+    <!-- メインコンテンツエリア -->
+    <main class="flex-1 max-w-md w-full mx-auto p-4 space-y-6">
+
+      <!-- ================= TAB 1: ダッシュボード ================= -->
+      <section id="tab-dashboard" class="tab-content space-y-5">
+        
+        <!-- 対象月切り替えバー -->
+        <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
+          <button onclick="changeMonth(-1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 flex items-center justify-center transition" title="前月">
+            <i class="fa-solid fa-chevron-left text-xs"></i>
+          </button>
+          <div class="flex items-center gap-2">
+            <i class="fa-regular fa-calendar-days text-blue-500 text-sm"></i>
+            <select id="dashboard-month-select" onchange="onMonthSelectChange(this.value)" class="font-bold text-sm text-slate-800 bg-transparent focus:outline-none cursor-pointer">
+              <!-- JSで動的に年月選択肢を出力 -->
+            </select>
+          </div>
+          <button onclick="changeMonth(1)" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-600 flex items-center justify-center transition" title="翌月">
+            <i class="fa-solid fa-chevron-right text-xs"></i>
+          </button>
+        </div>
+
+        <!-- サマリーカード -->
+        <div class="grid grid-cols-3 gap-2">
+          <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center">
+            <p class="text-[10px] text-slate-400 font-bold uppercase">全KPI数</p>
+            <p id="summary-total" class="text-lg font-black text-slate-800 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center">
+            <p class="text-[10px] text-emerald-500 font-bold uppercase">順調 (100%~)</p>
+            <p id="summary-success" class="text-lg font-black text-emerald-600 mt-0.5">0</p>
+          </div>
+          <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center">
+            <p class="text-[10px] text-rose-500 font-bold uppercase">遅延 (&lt;80%)</p>
+            <p id="summary-danger" class="text-lg font-black text-rose-600 mt-0.5">0</p>
+          </div>
+        </div>
+
+        <!-- 進捗グラフ -->
+        <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
+          <div class="flex justify-between items-center">
+            <h2 class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-chart-column text-blue-500"></i> 目標 vs 実績 比較
+            </h2>
+          </div>
+          <div class="relative h-44 w-full">
+            <canvas id="kpiBarChart"></canvas>
+          </div>
+        </div>
+
+        <!-- KPIカードリスト -->
+        <div class="space-y-3">
+          <div class="flex justify-between items-center">
+            <h2 class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+              <i class="fa-solid fa-list-check text-blue-500"></i> KPI進捗一覧
+            </h2>
+          </div>
+          <div id="kpi-cards-container" class="space-y-3"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 2: 実績入力 ================= -->
+      <section id="tab-input" class="tab-content hidden space-y-5">
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-pen-to-square text-blue-500"></i> 実績データを記録
+          </h2>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">対象KPI</label>
+              <select id="input-kpi-select" class="w-full border border-slate-200 rounded-xl p-3 bg-slate-50 text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"></select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">日付</label>
+                <input type="date" id="input-date" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">加算・実績値</label>
+                <input type="number" id="input-actual" inputmode="decimal" step="any" placeholder="0" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-slate-800">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">コメント / 定性要因 (任意)</label>
+              <textarea id="input-comment" rows="2" placeholder="例: 月末キャンペーンの効果で増加" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+            </div>
+
+            <button onclick="addLog()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/25 transition text-sm flex items-center justify-center gap-2">
+              <i class="fa-solid fa-plus"></i> 実績を登録する
+            </button>
+          </div>
+        </div>
+
+        <!-- 直近の入力ログ履歴 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h3 class="text-xs font-bold text-slate-700 flex items-center justify-between">
+            <span><i class="fa-solid fa-clock-rotate-left text-slate-400"></i> 最近の登録履歴</span>
+            <span class="text-[10px] text-slate-400">最新10件</span>
+          </h3>
+          <div id="recent-logs-list" class="space-y-2 divide-y divide-slate-100"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 3: KPI管理・追加 ================= -->
+      <section id="tab-kpi" class="tab-content hidden space-y-5">
+        <!-- 新規KPIの登録 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-circle-plus text-blue-500"></i> 新しいKPIを追加
+          </h2>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">KPI名</label>
+              <input type="text" id="new-kpi-title" placeholder="例: 新規契約件数 または クレーム件数" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">目標タイプ</label>
+              <select id="new-kpi-direction" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <option value="increase">📈 増やす（売上・件数・獲得数など）</option>
+                <option value="decrease">📉 減らす（クレーム・不良率・解約数など）</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">目標値</label>
+                <input type="number" id="new-kpi-target" inputmode="decimal" step="any" placeholder="100" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">単位</label>
+                <input type="text" id="new-kpi-unit" placeholder="件, 万円, %" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+            </div>
+
+            <button onclick="addKPI()" class="w-full bg-slate-800 hover:bg-slate-900 active:scale-[0.98] text-white font-bold py-2.5 rounded-xl shadow transition text-xs">
+              KPIを追加する
+            </button>
+          </div>
+        </div>
+
+        <!-- 既存KPI一覧・編集削除管理 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h3 class="text-xs font-bold text-slate-700">登録済みKPI一覧</h3>
+          <div id="manage-kpis-list" class="space-y-2"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 4: アクション (施策) ================= -->
+      <section id="tab-actions" class="tab-content hidden space-y-5">
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-rocket text-blue-500"></i> アクション（施策）の追加
+          </h2>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">関連するKPI</label>
+              <select id="action-kpi-select" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">施策・アクション内容</label>
+              <input type="text" id="action-title" placeholder="例: 新規DM送信アタック100件" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">担当者</label>
+                <input type="text" id="action-assignee" placeholder="担当者名" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-600 mb-1">期限</label>
+                <input type="date" id="action-duedate" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+            </div>
+            <button onclick="addAction()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-2.5 rounded-xl shadow transition text-xs">
+              アクションを登録
+            </button>
+          </div>
+        </div>
+
+        <!-- アクションタスク一覧 -->
+        <div class="space-y-3">
+          <h3 class="text-xs font-bold text-slate-700 flex items-center justify-between">
+            <span><i class="fa-solid fa-list-check text-slate-400"></i> アクション一覧</span>
+          </h3>
+          <div id="actions-list-container" class="space-y-2"></div>
+        </div>
+      </section>
+
+      <!-- ================= TAB 5: 設定 & データ ================= -->
+      <section id="tab-settings" class="tab-content hidden space-y-5">
+        
+        <!-- パスワード変更 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-key text-blue-500"></i> 顧問先パスワード変更
+          </h2>
+          <div class="space-y-2">
+            <input type="password" id="new-password" placeholder="新しいパスワード" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <button onclick="changePassword()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 rounded-xl text-xs transition">
+              パスワードを更新
+            </button>
+          </div>
+        </div>
+
+        <!-- JSONバックアップ/復元 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-database text-blue-500"></i> JSONバックアップ & 復元
+          </h2>
+          <p class="text-xs text-slate-500 leading-relaxed">
+            `localStorage` のデータをファイルへ保存（エクスポート）するか、バックアップJSONを読み込んで復元します。
+          </p>
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="exportJSON()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+              <i class="fa-solid fa-download"></i> エクスポート
+            </button>
+            <label class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition">
+              <i class="fa-solid fa-upload"></i> インポート
+              <input type="file" accept=".json" onchange="importJSON(event)" class="hidden">
+            </label>
+          </div>
+        </div>
+
+        <!-- CSVデータ出力 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+          <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
+            <i class="fa-solid fa-file-csv text-blue-500"></i> CSV実績データ出力
+          </h2>
+          <p class="text-xs text-slate-500 leading-relaxed">
+            指定した期間の実績ログをKPIごと・日付順に整理してCSV出力します。
+          </p>
+          <div class="space-y-2 text-xs">
+            <div>
+              <label class="block font-bold text-slate-600 mb-1">対象KPI</label>
+              <select id="csv-kpi-select" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block font-bold text-slate-600 mb-1">開始日</label>
+                <input type="date" id="csv-start-date" class="w-full border border-slate-200 rounded-xl p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+              <div>
+                <label class="block font-bold text-slate-600 mb-1">終了日</label>
+                <input type="date" id="csv-end-date" class="w-full border border-slate-200 rounded-xl p-2 bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              </div>
+            </div>
+            <button onclick="exportCSV()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-2.5 rounded-xl shadow transition flex items-center justify-center gap-1.5 mt-2">
+              <i class="fa-solid fa-file-excel"></i> CSVをダウンロード
+            </button>
+          </div>
+        </div>
+
+        <!-- データクリア -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-rose-100 space-y-3">
+          <h2 class="text-sm font-bold text-rose-600 flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation"></i> データリセット
+          </h2>
+          <p class="text-xs text-slate-500">
+            この端末に保存されたKPI・実績データを全て消去し、初期化します。
+          </p>
+          <button onclick="resetAllData()" class="w-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 font-bold py-2 rounded-xl text-xs transition">
+            全データをリセット
+          </button>
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- ボトムナビゲーション -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t border-slate-200 z-30">
+      <div class="max-w-md mx-auto grid grid-cols-5 text-center px-1 py-1">
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn py-2 text-blue-600 flex flex-col items-center justify-center">
+          <i class="fa-solid fa-chart-line text-lg"></i>
+          <span class="text-[9px] font-bold mt-0.5">進捗</span>
+        </button>
+        <button onclick="switchTab('input')" id="nav-input" class="nav-btn py-2 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center">
+          <i class="fa-solid fa-pen-to-square text-lg"></i>
+          <span class="text-[9px] font-bold mt-0.5">入力</span>
+        </button>
+        <button onclick="switchTab('kpi')" id="nav-kpi" class="nav-btn py-2 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center">
+          <i class="fa-solid fa-bullseye text-lg"></i>
+          <span class="text-[9px] font-bold mt-0.5">KPI設定</span>
+        </button>
+        <button onclick="switchTab('actions')" id="nav-actions" class="nav-btn py-2 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center">
+          <i class="fa-solid fa-list-check text-lg"></i>
+          <span class="text-[9px] font-bold mt-0.5">施策</span>
+        </button>
+        <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn py-2 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center">
+          <i class="fa-solid fa-gear text-lg"></i>
+          <span class="text-[9px] font-bold mt-0.5">設定</span>
+        </button>
+      </div>
+    </nav>
+
+  </div>
+
+  <!-- ==================== 3. JavaScript ロジック ==================== -->
+  <script>
+    // 定数・キー定義
+    const STORAGE_KEY = 'kpi_app_data_v2';
+    const DEFAULT_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4";
+    
+    let chartInstance = null;
+    let pendingModalAction = null;
+
+    // 現在選択されている対象年月 (形式: "YYYY-MM")
+    let selectedYearMonth = "";
+
+    // 純粋JSによるSHA-256計算エンジン（iframeや非暗号化環境でのSubtleCrypto利用制限に対応）
+    function jsSha256(ascii) {
+      function rightRotate(value, amount) { return (value >>> amount) | (value << (32 - amount)); }
+      var mathPow = Math.pow, maxWord = mathPow(2, 32), lengthProperty = 'length', i, j, result = '', words = [];
+      var asciiBitLength = ascii[lengthProperty] * 8;
+      var hash = jsSha256.h = jsSha256.h || [], k = jsSha256.k = jsSha256.k || [], primeCounter = k[lengthProperty];
+      var isPrime = function(n) {
+        for (var factor = 2, factorPow2 = 4; factorPow2 <= n; factorPow2 += factor * 2 + 1, factor++) if (n % factor === 0) return false;
+        return true;
+      };
+      if (!primeCounter) {
+        for (var candidate = 2; primeCounter < 64; candidate++) {
+          if (isPrime(candidate)) {
+            if (primeCounter < 8) hash[primeCounter] = (mathPow(candidate, 1/2) * maxWord) | 0;
+            k[primeCounter] = (mathPow(candidate, 1/3) * maxWord) | 0;
+            primeCounter++;
+          }
+        }
+      }
+      ascii += '\x80';
+      while (ascii[lengthProperty] % 64 !== 56) ascii += '\x00';
+      for (i = 0; i < ascii[lengthProperty]; i++) {
+        j = ascii.charCodeAt(i);
+        if (j >> 8) return "";
+        words[i >> 2] |= j << ((3 - i % 4) * 8);
+      }
+      words[words[lengthProperty]] = ((asciiBitLength / maxWord) | 0);
+      words[words[lengthProperty]] = (asciiBitLength | 0);
+      for (j = 0; j < words[lengthProperty];) {
+        var w = words.slice(j, j += 16), oldHash = hash;
+        hash = hash.slice(0, 8);
+        for (i = 0; i < 64; i++) {
+          var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+          var temp1 = hash[7] + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) + ((e & hash[5]) ^ (~e & hash[6])) + k[i] + (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
+          var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+          hash = [(temp1 + temp2) | 0].concat(hash);
+          hash[4] = (hash[4] + temp1) | 0;
+        }
+        for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+      }
+      for (i = 0; i < 8; i++) {
+        for (j = 3; j >= 0; j--) {
+          var b = (hash[i] >> (j * 8)) & 255;
+          result += (b < 16 ? '0' : '') + b.toString(16);
+        }
+      }
+      return result;
+    }
+
+    async function sha256(plain) {
+      if (window.crypto && window.crypto.subtle) {
+        try {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(plain);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch(e) {}
+      }
+      return jsSha256(plain);
+    }
+
+    // トースト通知関数
+    function showToast(message, isError = false) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `p-3 rounded-xl shadow-lg text-xs font-bold text-white flex items-center justify-between gap-2 transform transition-all duration-300 translate-y-[-10px] opacity-0 ${isError ? 'bg-rose-600' : 'bg-emerald-600'}`;
+      toast.innerHTML = `
+        <span class="flex items-center gap-1.5">
+          <i class="fa-solid ${isError ? 'fa-circle-xmark' : 'fa-circle-check'}"></i>
+          ${message}
+        </span>
+      `;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-[-10px]', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-[-10px]');
+        setTimeout(() => toast.remove(), 300);
+      }, 2500);
+    }
+
+    // モーダルダイアログ制御
+    function confirmModal(title, message, onConfirm) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-message').textContent = message;
+      pendingModalAction = onConfirm;
+
+      const confirmBtn = document.getElementById('modal-confirm-btn');
+      confirmBtn.onclick = function() {
+        if (pendingModalAction) pendingModalAction();
+        closeModal();
+      };
+
+      document.getElementById('custom-modal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+      document.getElementById('custom-modal').classList.add('hidden');
+      pendingModalAction = null;
+    }
+
+    // 事務所パスワードハッシュ取得
+    async function getOfficeHash() {
+      const charCodes = [49, 49, 48, 52, 50, 49]; // "110421"
+      const officePass = String.fromCharCode(...charCodes);
+      return await sha256(officePass);
+    }
+
+    // 認証コントロール
+    async function checkPassword() {
+      const input = document.getElementById('password-input').value.trim();
+      if (!input) return;
+
+      const hashedInput = await sha256(input);
+      const data = loadData();
+
+      const clientHash = data.authHash || DEFAULT_HASH;
+      const officeHash = await getOfficeHash();
+
+      if (hashedInput === clientHash || hashedInput === officeHash) {
+        document.getElementById('auth-overlay').classList.add('hidden');
+        document.getElementById('app-content').classList.remove('hidden');
+        sessionStorage.setItem('kpi_authenticated', 'true');
+        initApp();
+      } else {
+        document.getElementById('error-msg').classList.remove('hidden');
+      }
+    }
+
+    function logout() {
+      sessionStorage.removeItem('kpi_authenticated');
+      location.reload();
+    }
+
+    async function changePassword() {
+      const newPass = document.getElementById('new-password').value.trim();
+      if (!newPass) return showToast('新しいパスワードを入力してください', true);
+
+      const data = loadData();
+      data.authHash = await sha256(newPass);
+      saveData(data);
+
+      document.getElementById('new-password').value = '';
+      showToast('パスワードを変更しました');
+    }
+
+    // データ管理 (localStorage)
+    function loadData() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch(e) {
+          console.error("Data parse error", e);
+        }
+      }
+
+      return {
+        authHash: DEFAULT_HASH,
+        kpis: [
+          { id: 'kpi_1', title: '月間売上', target: 500, unit: '万円', direction: 'increase' },
+          { id: 'kpi_2', title: '新規獲得件数', target: 30, unit: '件', direction: 'increase' },
+          { id: 'kpi_3', title: 'クレーム発生件数', target: 3, unit: '件', direction: 'decrease' }
+        ],
+        logs: [
+          { id: 'log_1', kpi_id: 'kpi_1', date: '2026-07-05', actual: 150, comment: '大型契約成約' },
+          { id: 'log_2', kpi_id: 'kpi_1', date: '2026-07-15', actual: 200, comment: '中堅案件複数追加' },
+          { id: 'log_3', kpi_id: 'kpi_2', date: '2026-07-10', actual: 18, comment: 'Web問合せ増加' },
+          { id: 'log_4', kpi_id: 'kpi_3', date: '2026-07-12', actual: 1, comment: '配送遅延クレーム' }
+        ],
+        actions: [
+          { id: 'act_1', kpi_id: 'kpi_1', title: '既存客へのアップセルアプローチ', assignee: '山田', dueDate: '2026-07-31', status: 'in_progress' },
+          { id: 'act_2', kpi_id: 'kpi_3', title: '検品チェックリストの再徹底', assignee: '佐藤', dueDate: '2026-07-20', status: 'done' }
+        ]
+      };
+    }
+
+    function saveData(data) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      renderUI();
+    }
+
+    // タブ切り替え
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      const targetTab = document.getElementById(`tab-${tabName}`);
+      if (targetTab) targetTab.classList.remove('hidden');
+
+      document.querySelectorAll('.nav-btn').forEach(btn => {
+        btn.classList.remove('text-blue-600');
+        btn.classList.add('text-slate-400');
+      });
+
+      const activeBtn = document.getElementById(`nav-${tabName}`);
+      if (activeBtn) {
+        activeBtn.classList.remove('text-slate-400');
+        activeBtn.classList.add('text-blue-600');
+      }
+
+      const subtitles = {
+        'dashboard': `${selectedYearMonth.replace('-', '年')}月の進捗状況`,
+        'input': '日次実績データの入力',
+        'kpi': 'KPI項目の設定・追加・編集',
+        'actions': '施策・タスクの追跡',
+        'settings': 'データとセキュリティ管理'
+      };
+      document.getElementById('header-subtitle').textContent = subtitles[tabName] || '';
+    }
+
+    // 初期化 & 描画メイン
+    function initApp() {
+      const today = new Date();
+      document.getElementById('input-date').valueAsDate = today;
+
+      // 現在日から初期対象年月("YYYY-MM")を自動取得
+      if (!selectedYearMonth) {
+        const yyyy = today.getFullYear();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        selectedYearMonth = `${yyyy}-${mm}`;
+      }
+
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10);
+      const todayStr = today.toISOString().slice(0, 10);
+      
+      const startDateInput = document.getElementById('csv-start-date');
+      const endDateInput = document.getElementById('csv-end-date');
+      if (startDateInput && !startDateInput.value) startDateInput.value = firstDayOfMonth;
+      if (endDateInput && !endDateInput.value) endDateInput.value = todayStr;
+
+      renderUI();
+    }
+
+    // 対象月切り替え処理
+    function changeMonth(offsetMonths) {
+      const [year, month] = selectedYearMonth.split('-').map(Number);
+      const d = new Date(year, month - 1 + offsetMonths, 1);
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      selectedYearMonth = `${yyyy}-${mm}`;
+      renderUI();
+    }
+
+    function onMonthSelectChange(val) {
+      selectedYearMonth = val;
+      renderUI();
+    }
+
+    function populateMonthSelectOptions(data) {
+      const select = document.getElementById('dashboard-month-select');
+      if (!select) return;
+
+      // 存在するログの年月と、現在前後の年月を一覧化
+      const monthsSet = new Set();
+      
+      // 今日の前後12ヶ月を基本選択肢に追加
+      const now = new Date();
+      for (let i = -12; i <= 6; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        monthsSet.add(`${y}-${m}`);
+      }
+
+      // 実績ログが存在する年月も追加
+      if (data.logs) {
+        data.logs.forEach(l => {
+          if (l.date && l.date.length >= 7) {
+            monthsSet.add(l.date.slice(0, 7));
+          }
+        });
+      }
+
+      const sortedMonths = Array.from(monthsSet).sort().reverse();
+      
+      select.innerHTML = sortedMonths.map(ym => {
+        const [y, m] = ym.split('-');
+        const isSelected = ym === selectedYearMonth ? 'selected' : '';
+        return `<option value="${ym}" ${isSelected}>${y}年${m}月</option>`;
+      }).join('');
+    }
+
+    function renderUI() {
+      const data = loadData();
+      populateMonthSelectOptions(data);
+      renderSelects(data.kpis);
+      renderDashboard(data);
+      renderRecentLogs(data);
+      renderKPIManagementList(data.kpis);
+      renderActionsList(data);
+
+      const subtitleEl = document.getElementById('header-subtitle');
+      if (subtitleEl && selectedYearMonth) {
+        const [y, m] = selectedYearMonth.split('-');
+        subtitleEl.textContent = `${y}年${m}月の進捗状況`;
+      }
+    }
+
+    function renderSelects(kpis) {
+      const optionsHtml = kpis.map(k => `<option value="${k.id}">${k.title}</option>`).join('');
+      document.getElementById('input-kpi-select').innerHTML = optionsHtml;
+      document.getElementById('action-kpi-select').innerHTML = optionsHtml;
+
+      const csvOptionsHtml = `<option value="all">すべてのKPI</option>` + optionsHtml;
+      const csvSelect = document.getElementById('csv-kpi-select');
+      if (csvSelect) csvSelect.innerHTML = csvOptionsHtml;
+    }
+
+    function renderDashboard(data) {
+      const container = document.getElementById('kpi-cards-container');
+      container.innerHTML = '';
+
+      let countTotal = data.kpis.length;
+      let countSuccess = 0;
+      let countDanger = 0;
+
+      // 選択されている対象月（selectedYearMonth）のログのみを抽出
+      const currentMonthLogs = data.logs.filter(l => l.date && l.date.startsWith(selectedYearMonth));
+
+      data.kpis.forEach(kpi => {
+        const actualTotal = currentMonthLogs
+          .filter(l => l.kpi_id === kpi.id)
+          .reduce((sum, l) => sum + Number(l.actual), 0);
+
+        const isDecrease = kpi.direction === 'decrease';
+        let rate = 0;
+
+        if (isDecrease) {
+          if (actualTotal === 0) {
+            rate = 100;
+          } else if (kpi.target > 0) {
+            rate = Math.round((kpi.target / actualTotal) * 100);
+          } else {
+            rate = actualTotal === 0 ? 100 : 0;
+          }
+        } else {
+          rate = kpi.target > 0 ? Math.round((actualTotal / kpi.target) * 100) : 0;
+        }
+
+        let badgeClass = 'bg-rose-100 text-rose-700';
+        let barClass = 'bg-rose-500';
+        let icon = 'fa-triangle-exclamation';
+
+        if (isDecrease) {
+          if (actualTotal <= kpi.target) {
+            badgeClass = 'bg-emerald-100 text-emerald-700';
+            barClass = 'bg-emerald-500';
+            icon = 'fa-circle-check';
+            countSuccess++;
+          } else if (actualTotal <= kpi.target * 1.2) {
+            badgeClass = 'bg-amber-100 text-amber-700';
+            barClass = 'bg-amber-500';
+            icon = 'fa-circle-exclamation';
+          } else {
+            countDanger++;
+          }
+        } else {
+          if (rate >= 100) {
+            badgeClass = 'bg-emerald-100 text-emerald-700';
+            barClass = 'bg-emerald-500';
+            icon = 'fa-circle-check';
+            countSuccess++;
+          } else if (rate >= 80) {
+            badgeClass = 'bg-amber-100 text-amber-700';
+            barClass = 'bg-amber-500';
+            icon = 'fa-circle-exclamation';
+          } else {
+            countDanger++;
+          }
+        }
+
+        const targetSuffix = isDecrease ? '以下' : '';
+        const directionBadge = isDecrease 
+          ? `<span class="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-normal">📉 削減目標</span>` 
+          : `<span class="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-normal">📈 増加目標</span>`;
+
+        container.innerHTML += `
+          <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2.5">
+            <div class="flex justify-between items-center">
+              <div class="flex items-center gap-1.5">
+                <span class="font-extrabold text-sm text-slate-800">${kpi.title}</span>
+                ${directionBadge}
+              </div>
+              <span class="text-xs font-bold px-2.5 py-1 rounded-full ${badgeClass} flex items-center gap-1">
+                <i class="fa-solid ${icon} text-[10px]"></i> ${rate}%
+              </span>
+            </div>
+            
+            <div class="flex justify-between items-baseline text-xs text-slate-500">
+              <span>実績: <strong class="text-slate-800 text-sm font-bold">${actualTotal.toLocaleString()}</strong> ${kpi.unit}</span>
+              <span>目標: ${kpi.target.toLocaleString()} ${kpi.unit} ${targetSuffix}</span>
+            </div>
+
+            <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+              <div class="${barClass} h-full transition-all duration-500 rounded-full" style="width: ${Math.min(rate, 100)}%"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      document.getElementById('summary-total').textContent = countTotal;
+      document.getElementById('summary-success').textContent = countSuccess;
+      document.getElementById('summary-danger').textContent = countDanger;
+
+      renderBarChart(data, currentMonthLogs);
+    }
+
+    function renderBarChart(data, currentMonthLogs) {
+      const ctx = document.getElementById('kpiBarChart').getContext('2d');
+      if (chartInstance) chartInstance.destroy();
+
+      const labels = data.kpis.map(k => k.title);
+      const targets = data.kpis.map(k => k.target);
+      const actuals = data.kpis.map(k => {
+        return currentMonthLogs
+          .filter(l => l.kpi_id === k.id)
+          .reduce((sum, l) => sum + Number(l.actual), 0);
+      });
+
+      chartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: '実績', data: actuals, backgroundColor: '#3b82f6', borderRadius: 6 },
+            { label: '目標', data: targets, backgroundColor: '#e2e8f0', borderRadius: 6 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+            x: { grid: { display: false } }
+          }
+        }
+      });
+    }
+
+    function addLog() {
+      const kpiId = document.getElementById('input-kpi-select').value;
+      const date = document.getElementById('input-date').value;
+      const actual = document.getElementById('input-actual').value;
+      const comment = document.getElementById('input-comment').value;
+
+      if (!kpiId || actual === '') return showToast('KPIと実績値を入力してください', true);
+
+      const data = loadData();
+      data.logs.push({
+        id: 'log_' + Date.now(),
+        kpi_id: kpiId,
+        date: date || new Date().toISOString().slice(0, 10),
+        actual: Number(actual),
+        comment: comment
+      });
+
+      saveData(data);
+      document.getElementById('input-actual').value = '';
+      document.getElementById('input-comment').value = '';
+      showToast('実績を登録しました！');
+      switchTab('dashboard');
+    }
+
+    function renderRecentLogs(data) {
+      const list = document.getElementById('recent-logs-list');
+      if (data.logs.length === 0) {
+        list.innerHTML = `<p class="text-xs text-slate-400 py-2 text-center">履歴はまだありません</p>`;
+        return;
+      }
+
+      const sortedLogs = [...data.logs].reverse().slice(0, 10);
+      list.innerHTML = sortedLogs.map(log => {
+        const kpi = data.kpis.find(k => k.id === log.kpi_id);
+        const kpiTitle = kpi ? kpi.title : '不明なKPI';
+        const unit = kpi ? kpi.unit : '';
+
+        return `
+          <div class="pt-2 first:pt-0 flex justify-between items-center text-xs">
+            <div>
+              <p class="font-bold text-slate-700">${kpiTitle}: <span class="text-blue-600 font-extrabold">+${log.actual} ${unit}</span></p>
+              <p class="text-[10px] text-slate-400">${log.date} ${log.comment ? '• ' + log.comment : ''}</p>
+            </div>
+            <button onclick="requestDeleteLog('${log.id}')" class="text-slate-300 hover:text-rose-500 p-1.5 transition">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function requestDeleteLog(logId) {
+      confirmModal(
+        '実績ログの削除',
+        '選択した実績データを削除しますか？',
+        function() {
+          const data = loadData();
+          data.logs = data.logs.filter(l => l.id !== logId);
+          saveData(data);
+          showToast('実績ログを削除しました');
+        }
+      );
+    }
+
+    function addKPI() {
+      const title = document.getElementById('new-kpi-title').value.trim();
+      const direction = document.getElementById('new-kpi-direction').value;
+      const target = document.getElementById('new-kpi-target').value;
+      const unit = document.getElementById('new-kpi-unit').value.trim() || '件';
+
+      if (!title || target === '') return showToast('KPI名と目標値を入力してください', true);
+
+      const data = loadData();
+      data.kpis.push({
+        id: 'kpi_' + Date.now(),
+        title: title,
+        direction: direction || 'increase',
+        target: Number(target),
+        unit: unit
+      });
+
+      saveData(data);
+      document.getElementById('new-kpi-title').value = '';
+      document.getElementById('new-kpi-target').value = '';
+      document.getElementById('new-kpi-unit').value = '';
+      showToast('KPIを追加しました！');
+    }
+
+    function openEditKPIModal(kpiId) {
+      const data = loadData();
+      const kpi = data.kpis.find(k => k.id === kpiId);
+      if (!kpi) return;
+
+      document.getElementById('edit-kpi-id').value = kpi.id;
+      document.getElementById('edit-kpi-title').value = kpi.title;
+      document.getElementById('edit-kpi-direction').value = kpi.direction || 'increase';
+      document.getElementById('edit-kpi-target').value = kpi.target;
+      document.getElementById('edit-kpi-unit').value = kpi.unit;
+
+      document.getElementById('edit-kpi-modal').classList.remove('hidden');
+    }
+
+    function saveEditedKPI() {
+      const id = document.getElementById('edit-kpi-id').value;
+      const title = document.getElementById('edit-kpi-title').value.trim();
+      const direction = document.getElementById('edit-kpi-direction').value;
+      const target = document.getElementById('edit-kpi-target').value;
+      const unit = document.getElementById('edit-kpi-unit').value.trim();
+
+      if (!title || target === '') return showToast('KPI名と目標値を入力してください', true);
+
+      const data = loadData();
+      const kpi = data.kpis.find(k => k.id === id);
+      if (kpi) {
+        kpi.title = title;
+        kpi.direction = direction || 'increase';
+        kpi.target = Number(target);
+        kpi.unit = unit;
+        saveData(data);
+        closeEditKPIModal();
+        showToast('KPIを更新しました！');
+      }
+    }
+
+    function renderKPIManagementList(kpis) {
+      const container = document.getElementById('manage-kpis-list');
+      container.innerHTML = kpis.map(kpi => {
+        const dirLabel = kpi.direction === 'decrease' ? '📉 減らす' : '📈 増やす';
+        return `
+          <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+            <div>
+              <p class="font-bold text-slate-800">${kpi.title} <span class="text-[10px] text-slate-400 font-normal">(${dirLabel})</span></p>
+              <p class="text-[10px] text-slate-400">目標: ${kpi.target.toLocaleString()} ${kpi.unit}</p>
+            </div>
+            <div class="flex items-center gap-1">
+              <button onclick="openEditKPIModal('${kpi.id}')" class="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold px-2.5 py-1 rounded transition text-[11px]">
+                <i class="fa-solid fa-pen"></i> 編集
+              </button>
+              <button onclick="requestDeleteKPI('${kpi.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2.5 py-1 rounded transition text-[11px]">
+                <i class="fa-solid fa-trash"></i> 削除
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function requestDeleteKPI(kpiId) {
+      confirmModal(
+        'KPIの削除',
+        'このKPIおよび紐づく実績ログ・アクションを削除しますか？',
+        function() {
+          const data = loadData();
+          data.kpis = data.kpis.filter(k => k.id !== kpiId);
+          data.logs = data.logs.filter(l => l.kpi_id !== kpiId);
+          if (data.actions) {
+            data.actions = data.actions.filter(a => a.kpi_id !== kpiId);
+          }
+          saveData(data);
+          showToast('KPIを削除しました');
+        }
+      );
+    }
+
+    function addAction() {
+      const kpiId = document.getElementById('action-kpi-select').value;
+      const title = document.getElementById('action-title').value.trim();
+      const assignee = document.getElementById('action-assignee').value.trim();
+      const dueDate = document.getElementById('action-duedate').value;
+
+      if (!kpiId || !title) return showToast('KPIと施策内容を入力してください', true);
+
+      const data = loadData();
+      if (!data.actions) data.actions = [];
+
+      data.actions.push({
+        id: 'act_' + Date.now(),
+        kpi_id: kpiId,
+        title: title,
+        assignee: assignee || '未設定',
+        dueDate: dueDate || '未設定',
+        status: 'todo'
+      });
+
+      saveData(data);
+      document.getElementById('action-title').value = '';
+      document.getElementById('action-assignee').value = '';
+      document.getElementById('action-duedate').value = '';
+      showToast('アクションを登録しました！');
+    }
+
+    function renderActionsList(data) {
+      const container = document.getElementById('actions-list-container');
+      if (!container) return;
+      if (!data.actions || data.actions.length === 0) {
+        container.innerHTML = `<p class="text-xs text-slate-400 py-3 text-center bg-white rounded-xl">登録されているアクションはありません</p>`;
+        return;
+      }
+
+      container.innerHTML = data.actions.map(act => {
+        const kpi = data.kpis.find(k => k.id === act.kpi_id);
+        const kpiTitle = kpi ? kpi.title : '関連KPIなし';
+
+        let statusBadge = 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+        let statusText = '未対応';
+        if (act.status === 'in_progress') {
+          statusBadge = 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+          statusText = '進行中';
+        } else if (act.status === 'done') {
+          statusBadge = 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200';
+          statusText = '完了';
+        }
+
+        return `
+          <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm space-y-2 text-xs">
+            <div class="flex justify-between items-start">
+              <span class="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">${kpiTitle}</span>
+              <div class="flex items-center gap-1.5">
+                <button onclick="toggleActionStatus('${act.id}')" class="text-[10px] font-bold px-2.5 py-1 rounded-full ${statusBadge} transition">
+                  ${statusText} <i class="fa-solid fa-rotate text-[8px] ml-0.5"></i>
+                </button>
+                <button onclick="requestDeleteAction('${act.id}')" class="text-slate-300 hover:text-rose-500 p-1 transition">
+                  <i class="fa-solid fa-trash"></i>
+                </button>
+              </div>
+            </div>
+            <p class="font-bold text-slate-800 text-sm">${act.title}</p>
+            <div class="flex justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-50">
+              <span>担当: ${act.assignee}</span>
+              <span>期日: ${act.dueDate}</span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleActionStatus(actionId) {
+      const data = loadData();
+      const action = data.actions.find(a => a.id === actionId);
+      if (!action) return;
+
+      const nextStatus = { 'todo': 'in_progress', 'in_progress': 'done', 'done': 'todo' };
+      action.status = nextStatus[action.status] || 'todo';
+      saveData(data);
+    }
+
+    function requestDeleteAction(actionId) {
+      confirmModal(
+        '施策タスクの削除',
+        'このアクションを削除しますか？',
+        function() {
+          const data = loadData();
+          data.actions = data.actions.filter(a => a.id !== actionId);
+          saveData(data);
+          showToast('アクションを削除しました');
+        }
+      );
+    }
+
+    function exportJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(localStorage.getItem(STORAGE_KEY));
+      const a = document.createElement('a');
+      a.href = dataStr;
+      a.download = `kpi_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      showToast('JSONをエクスポートしました');
+    }
+
+    function exportCSV() {
+      const data = loadData();
+      const selectedKpiId = document.getElementById('csv-kpi-select').value;
+      const startDate = document.getElementById('csv-start-date').value;
+      const endDate = document.getElementById('csv-end-date').value;
+
+      if (!data.logs || data.logs.length === 0) {
+        return showToast('出力する実績データがありません', true);
+      }
+
+      let filteredLogs = data.logs.filter(log => {
+        if (selectedKpiId !== 'all' && log.kpi_id !== selectedKpiId) return false;
+        if (startDate && log.date < startDate) return false;
+        if (endDate && log.date > endDate) return false;
+        return true;
+      });
+
+      if (filteredLogs.length === 0) {
+        return showToast('指定条件に一致する実績データがありません', true);
+      }
+
+      filteredLogs.sort((a, b) => {
+        const kpiA = data.kpis.find(k => k.id === a.kpi_id);
+        const kpiB = data.kpis.find(k => k.id === b.kpi_id);
+        const titleA = kpiA ? kpiA.title : '';
+        const titleB = kpiB ? kpiB.title : '';
+
+        if (titleA !== titleB) {
+          return titleA.localeCompare(titleB, 'ja');
+        }
+        return a.date.localeCompare(b.date);
+      });
+
+      const headers = ['KPI名', '日付', '実績値', '単位', 'コメント'];
+      const rows = filteredLogs.map(log => {
+        const kpi = data.kpis.find(k => k.id === log.kpi_id);
+        const kpiTitle = kpi ? kpi.title : '不明';
+        const unit = kpi ? kpi.unit : '';
+        const escapedComment = log.comment ? `"${log.comment.replace(/"/g, '""')}"` : '""';
+        const escapedTitle = `"${kpiTitle.replace(/"/g, '""')}"`;
+
+        return [
+          escapedTitle,
+          log.date,
+          log.actual,
+          `"${unit.replace(/"/g, '""')}"`,
+          escapedComment
+        ].join(',');
+      });
+
+      const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kpi_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('CSVを出力しました');
+    }
+
+    function importJSON(e) {
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          if (parsed.kpis && parsed.logs) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            renderUI();
+            showToast("データを復元しました");
+          } else {
+            showToast("エラー: KPI形式ではありません", true);
+          }
+        } catch (err) {
+          showToast("エラー: ファイルの読み込み失敗", true);
+        }
+      };
+      if (e.target.files[0]) reader.readAsText(e.target.files[0]);
+    }
+
+    function resetAllData() {
+      confirmModal(
+        '全データのリセット',
+        'すべてのKPIおよび実績ログ、アクションが完全に消去されます。本当によろしいですか？',
+        function() {
+          localStorage.removeItem(STORAGE_KEY);
+          location.reload();
+        }
+      );
+    }
+
+    function bootApp() {
+      const passInput = document.getElementById('password-input');
+      if (passInput) {
+        setTimeout(() => passInput.focus(), 100);
+      }
+
+      if (sessionStorage.getItem('kpi_authenticated') === 'true') {
+        document.getElementById('auth-overlay').classList.add('hidden');
+        document.getElementById('app-content').classList.remove('hidden');
+        initApp();
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootApp);
+    } else {
+      bootApp();
+    }
+  </script>
+</body>
+</html>
