@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>KPI Express - モバイルKPI管理</title>
+  <title>KPI Express - スマホKPI管理</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Chart.js -->
@@ -15,31 +15,102 @@
       -webkit-tap-highlight-color: transparent;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-blue-500 selection:text-white">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- ==================== トースト通知 UI ==================== -->
+  <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 opacity-0 pointer-events-none transform -translate-y-4">
+    <div id="toast-message" class="bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2">
+      <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400"></i>
+      <span id="toast-text">メッセージ</span>
+    </div>
+  </div>
+
+  <!-- ==================== カスタム確認ダイアログ モーダル ==================== -->
+  <div id="confirm-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-xs text-center space-y-4">
+      <div id="confirm-icon" class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto text-xl">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+      </div>
+      <div>
+        <h3 id="confirm-title" class="font-extrabold text-base text-slate-800">削除の確認</h3>
+        <p id="confirm-message" class="text-xs text-slate-500 mt-1">本当に実行しますか？</p>
+      </div>
+      <div class="grid grid-cols-2 gap-2 pt-2">
+        <button id="confirm-cancel-btn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+          キャンセル
+        </button>
+        <button id="confirm-ok-btn" class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md shadow-rose-500/20">
+          実行する
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== KPI編集 モーダル ==================== -->
+  <div id="edit-kpi-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm space-y-4">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+        <h3 class="font-extrabold text-sm text-slate-800 flex items-center gap-2">
+          <i class="fa-solid fa-pen-to-square text-blue-500"></i> KPI項目の編集
+        </h3>
+        <button onclick="closeEditKPIModal()" class="text-slate-400 hover:text-slate-600 p-1 text-base">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      
+      <input type="hidden" id="edit-kpi-id">
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">KPI名</label>
+          <input type="text" id="edit-kpi-title" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">目標値</label>
+            <input type="number" id="edit-kpi-target" inputmode="decimal" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-600 mb-1">単位</label>
+            <input type="text" id="edit-kpi-unit" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">目標タイプ</label>
+          <select id="edit-kpi-type" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold">
+            <option value="increase">📈 増やす目標 (売上・獲得数等)</option>
+            <option value="decrease">📉 減らす目標 (クレーム件数・不良率等)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 pt-2">
+        <button onclick="closeEditKPIModal()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition">
+          キャンセル
+        </button>
+        <button onclick="saveEditedKPI()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md shadow-blue-500/20">
+          保存する
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ==================== 1. パスワード保護画面 ==================== -->
   <div id="auth-overlay" class="fixed inset-0 bg-slate-900/95 backdrop-blur-md flex items-center justify-center p-4 z-50">
-    <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm text-center space-y-4 transform transition-all">
+    <div class="bg-white rounded-3xl shadow-2xl p-6 w-full max-w-sm text-center space-y-4">
       <div class="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-inner">
-        <i class="fa-solid fa-shield-halved"></i>
+        <i class="fa-solid fa-lock"></i>
       </div>
       <div>
         <h2 class="text-xl font-extrabold text-slate-800">KPI Express</h2>
-        <p class="text-xs text-slate-500 mt-1">パスワードを入力してログインしてください</p>
+        <p class="text-xs text-slate-500 mt-1">アクセスするにはパスワードを入力してください</p>
       </div>
       
-      <div class="space-y-3">
-        <input type="password" id="password-input" autofocus placeholder="パスワードを入力" 
-          onkeydown="if(event.key==='Enter') checkPassword()"
+      <div class="space-y-2">
+        <input type="password" id="password-input" inputmode="numeric" pattern="[0-9]*" placeholder="パスワードを入力" autofocus 
           class="w-full border border-slate-200 rounded-xl px-4 py-3 text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50">
         <button onclick="checkPassword()" 
           class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-500/30 transition duration-150">
@@ -48,7 +119,7 @@
       </div>
 
       <p id="error-msg" class="text-xs text-rose-500 font-medium hidden flex items-center justify-center gap-1">
-        <i class="fa-solid fa-circle-exclamation"></i> パスワードが正しくありません
+        <i class="fa-solid fa-circle-exclamation"></i> パスワードが違います
       </p>
 
       <div class="pt-2 border-t border-slate-100">
@@ -58,7 +129,7 @@
   </div>
 
   <!-- ==================== 2. メインアプリケーション ==================== -->
-  <div id="app-content" class="hidden flex-1 flex flex-col">
+  <div id="app-content" class="hidden flex-1 flex flex-col pb-32">
     
     <!-- アプリヘッダー -->
     <header class="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 px-4 py-3 flex items-center justify-between shadow-sm">
@@ -67,8 +138,8 @@
           📊
         </div>
         <div>
-          <h1 class="font-bold text-sm leading-tight text-slate-800">KPI 管理</h1>
-          <p id="header-subtitle" class="text-[10px] text-slate-500">当月進捗の一覧</p>
+          <h1 class="font-bold text-sm leading-tight text-slate-800">KPI ダッシュボード</h1>
+          <p id="header-subtitle" class="text-[10px] text-slate-500">進捗状況の一覧</p>
         </div>
       </div>
       <button onclick="logout()" class="text-xs text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition flex items-center gap-1">
@@ -76,22 +147,24 @@
       </button>
     </header>
 
-    <!-- メインコンテンツエリア (pb-32 でスマホのボトムナビ被りを防止) -->
-    <main class="flex-1 max-w-md w-full mx-auto p-4 space-y-6 pb-32">
+    <!-- タブコンテンツエリア -->
+    <main class="flex-1 max-w-md w-full mx-auto p-4 space-y-6">
 
       <!-- ================= TAB 1: ダッシュボード ================= -->
       <section id="tab-dashboard" class="tab-content space-y-5">
         
-        <!-- 対象年月セレクター -->
+        <!-- 対象月コントロール -->
         <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between">
-          <button onclick="changeMonth(-1)" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition">
+          <button onclick="changeMonth(-1)" class="w-9 h-9 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 flex items-center justify-center transition">
             <i class="fa-solid fa-chevron-left text-xs"></i>
           </button>
+          
           <div class="flex items-center gap-2">
-            <i class="fa-regular fa-calendar text-blue-500 text-xs"></i>
-            <input type="month" id="selected-month" onchange="onMonthChange()" class="font-bold text-sm text-slate-800 bg-transparent focus:outline-none cursor-pointer">
+            <i class="fa-solid fa-calendar-days text-blue-500 text-xs"></i>
+            <input type="month" id="selected-month" onchange="onMonthSelectChange()" class="font-extrabold text-sm text-slate-800 bg-transparent focus:outline-none cursor-pointer">
           </div>
-          <button onclick="changeMonth(1)" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition">
+
+          <button onclick="changeMonth(1)" class="w-9 h-9 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-600 flex items-center justify-center transition">
             <i class="fa-solid fa-chevron-right text-xs"></i>
           </button>
         </div>
@@ -103,11 +176,11 @@
             <p id="summary-total" class="text-lg font-black text-slate-800 mt-0.5">0</p>
           </div>
           <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center">
-            <p class="text-[10px] text-emerald-500 font-bold uppercase">順調 / 達成</p>
+            <p class="text-[10px] text-emerald-500 font-bold uppercase">順調 (達成)</p>
             <p id="summary-success" class="text-lg font-black text-emerald-600 mt-0.5">0</p>
           </div>
           <div class="bg-white p-3 rounded-2xl shadow-sm border border-slate-100 text-center">
-            <p class="text-[10px] text-rose-500 font-bold uppercase">注意 / 未達</p>
+            <p class="text-[10px] text-rose-500 font-bold uppercase">未達成 / 超過</p>
             <p id="summary-danger" class="text-lg font-black text-rose-600 mt-0.5">0</p>
           </div>
         </div>
@@ -116,7 +189,7 @@
         <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2">
           <div class="flex justify-between items-center">
             <h2 class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <i class="fa-solid fa-chart-column text-blue-500"></i> 月間目標 vs 実績
+              <i class="fa-solid fa-chart-column text-blue-500"></i> <span id="chart-month-title">当月</span>の目標 vs 実績
             </h2>
           </div>
           <div class="relative h-44 w-full">
@@ -128,13 +201,11 @@
         <div class="space-y-3">
           <div class="flex justify-between items-center">
             <h2 class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-              <i class="fa-solid fa-list-check text-blue-500"></i> KPI進捗カード
+              <i class="fa-solid fa-list-check text-blue-500"></i> 月間進捗状況
             </h2>
-            <span class="text-[10px] text-slate-400">選択月の実績を表示</span>
+            <span class="text-[10px] text-slate-400">実績の推移とステータス</span>
           </div>
-          <div id="kpi-cards-container" class="space-y-3">
-            <!-- JSで動的生成 -->
-          </div>
+          <div id="kpi-cards-container" class="space-y-3"></div>
         </div>
       </section>
 
@@ -157,14 +228,14 @@
                 <input type="date" id="input-date" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
               </div>
               <div>
-                <label class="block text-xs font-bold text-slate-600 mb-1">実績値</label>
+                <label class="block text-xs font-bold text-slate-600 mb-1">加算・実績値</label>
                 <input type="number" id="input-actual" inputmode="decimal" step="any" placeholder="0" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-slate-800">
               </div>
             </div>
 
             <div>
               <label class="block text-xs font-bold text-slate-600 mb-1">コメント / 定性要因 (任意)</label>
-              <textarea id="input-comment" rows="2" placeholder="例: 月末キャンペーンの効果で増加" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
+              <textarea id="input-comment" rows="2" placeholder="例: 月末施策の展開" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none"></textarea>
             </div>
 
             <button onclick="addLog()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-500/25 transition text-sm flex items-center justify-center gap-2">
@@ -173,20 +244,17 @@
           </div>
         </div>
 
-        <!-- 直近の入力ログ履歴 -->
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
           <h3 class="text-xs font-bold text-slate-700 flex items-center justify-between">
-            <span><i class="fa-solid fa-clock-rotate-left text-slate-400"></i> 登録履歴 (選択月)</span>
+            <span><i class="fa-solid fa-clock-rotate-left text-slate-400"></i> 最近の登録履歴</span>
+            <span class="text-[10px] text-slate-400">最新10件</span>
           </h3>
-          <div id="recent-logs-list" class="space-y-2 divide-y divide-slate-100">
-            <!-- JS動的表示 -->
-          </div>
+          <div id="recent-logs-list" class="space-y-2 divide-y divide-slate-100"></div>
         </div>
       </section>
 
       <!-- ================= TAB 3: KPI管理・追加 ================= -->
       <section id="tab-kpi" class="tab-content hidden space-y-5">
-        <!-- 新規KPIの登録 -->
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
           <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
             <i class="fa-solid fa-circle-plus text-blue-500"></i> 新しいKPIを追加
@@ -195,13 +263,13 @@
           <div class="space-y-3">
             <div>
               <label class="block text-xs font-bold text-slate-600 mb-1">KPI名</label>
-              <input type="text" id="new-kpi-title" placeholder="例: クレーム発生件数" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <input type="text" id="new-kpi-title" placeholder="例: 新規契約件数 / 不良率" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
 
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-xs font-bold text-slate-600 mb-1">目標値 (月間)</label>
-                <input type="number" id="new-kpi-target" inputmode="decimal" placeholder="5" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                <label class="block text-xs font-bold text-slate-600 mb-1">月間目標値</label>
+                <input type="number" id="new-kpi-target" inputmode="decimal" placeholder="100" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
               </div>
               <div>
                 <label class="block text-xs font-bold text-slate-600 mb-1">単位</label>
@@ -210,10 +278,10 @@
             </div>
 
             <div>
-              <label class="block text-xs font-bold text-slate-600 mb-1">目標のタイプ</label>
-              <select id="new-kpi-type" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-medium">
-                <option value="increase">📈 増やす目標 (売上・獲得数など)</option>
-                <option value="decrease">📉 減らす目標 (クレーム件数・不良率など)</option>
+              <label class="block text-xs font-bold text-slate-600 mb-1">目標タイプ</label>
+              <select id="new-kpi-type" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold">
+                <option value="increase">📈 増やす目標 (売上・訪問数・商談件数など)</option>
+                <option value="decrease">📉 減らす目標 (クレーム件数・不良率・残業時間など)</option>
               </select>
             </div>
 
@@ -223,16 +291,13 @@
           </div>
         </div>
 
-        <!-- 既存KPI一覧・編集管理 -->
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
           <h3 class="text-xs font-bold text-slate-700">登録済みKPI一覧</h3>
-          <div id="manage-kpis-list" class="space-y-2">
-            <!-- JSで動的追加 -->
-          </div>
+          <div id="manage-kpis-list" class="space-y-2"></div>
         </div>
       </section>
 
-      <!-- ================= TAB 4: アクション (施策) ================= -->
+      <!-- ================= TAB 4: アクション ================= -->
       <section id="tab-actions" class="tab-content hidden space-y-5">
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
           <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
@@ -246,7 +311,7 @@
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-600 mb-1">施策・アクション内容</label>
-              <input type="text" id="action-title" placeholder="例: 改善マニュアルの作成・配布" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+              <input type="text" id="action-title" placeholder="例: Webサイトの入力フォーム改善" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -264,74 +329,86 @@
           </div>
         </div>
 
-        <!-- アクションタスク一覧 -->
         <div class="space-y-3">
           <h3 class="text-xs font-bold text-slate-700 flex items-center justify-between">
             <span><i class="fa-solid fa-list-check text-slate-400"></i> アクション一覧</span>
           </h3>
-          <div id="actions-list-container" class="space-y-2">
-            <!-- JS動的追加 -->
-          </div>
+          <div id="actions-list-container" class="space-y-2"></div>
         </div>
       </section>
 
-      <!-- ================= TAB 5: 設定 & データ ================= -->
+      <!-- ================= TAB 5: 設定 & 出力 ================= -->
       <section id="tab-settings" class="tab-content hidden space-y-5">
         
-        <!-- CSV データダウンロード -->
-        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+        <!-- CSVダウンロード (期間指定) -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
           <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
-            <i class="fa-solid fa-file-csv text-blue-500"></i> CSVデータ出力 (期間指定)
+            <i class="fa-solid fa-file-csv text-emerald-600"></i> CSVデータ出力（期間指定）
           </h2>
           <p class="text-xs text-slate-500 leading-relaxed">
-            指定した期間の実績ログをKPIごと・日付順に集計してCSV出力します。
+            指定した期間の実績データをKPIごと・日付順にソートしてCSV出力します。
           </p>
 
-          <div class="space-y-2.5 pt-1">
+          <div class="space-y-3">
             <div>
-              <label class="block text-[11px] font-bold text-slate-600 mb-1">出力対象KPI</label>
-              <select id="csv-kpi-select" class="w-full border border-slate-200 rounded-xl p-2 text-xs bg-slate-50 focus:outline-none">
+              <label class="block text-xs font-bold text-slate-600 mb-1">対象KPI</label>
+              <select id="csv-kpi-select" class="w-full border border-slate-200 rounded-xl p-2.5 bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none">
                 <option value="all">すべてのKPI</option>
               </select>
             </div>
-
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-[11px] font-bold text-slate-600 mb-1">開始日</label>
-                <input type="date" id="csv-start-date" class="w-full border border-slate-200 rounded-xl p-2 text-xs bg-slate-50 focus:outline-none">
+                <label class="block text-xs font-bold text-slate-600 mb-1">開始日</label>
+                <input type="date" id="csv-start-date" class="w-full border border-slate-200 rounded-xl p-2 text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
               </div>
               <div>
-                <label class="block text-[11px] font-bold text-slate-600 mb-1">終了日</label>
-                <input type="date" id="csv-end-date" class="w-full border border-slate-200 rounded-xl p-2 text-xs bg-slate-50 focus:outline-none">
+                <label class="block text-xs font-bold text-slate-600 mb-1">終了日</label>
+                <input type="date" id="csv-end-date" class="w-full border border-slate-200 rounded-xl p-2 text-xs bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
               </div>
             </div>
-
-            <button onclick="exportCSV()" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.98] text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
-              <i class="fa-solid fa-file-export"></i> CSVをダウンロード
+            <button onclick="exportCSV()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+              <i class="fa-solid fa-file-export"></i> CSVファイルをダウンロード
             </button>
           </div>
         </div>
 
-        <!-- パスワード変更 -->
-        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
+        <!-- パスワード・セキュリティ設定 -->
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-4">
           <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
-            <i class="fa-solid fa-key text-blue-500"></i> 顧問先パスワード変更
+            <i class="fa-solid fa-shield-halved text-blue-500"></i> パスワード・セキュリティ設定
           </h2>
+          
           <div class="space-y-2">
-            <input type="password" id="new-password" placeholder="新しいパスワード" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <label class="block text-xs font-bold text-slate-600">起動時のパスワード保護</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button id="btn-pass-enable" onclick="togglePasswordProtection(true)" class="py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-lock"></i> あり (保護する)
+              </button>
+              <button id="btn-pass-disable" onclick="togglePasswordProtection(false)" class="py-2.5 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                <i class="fa-solid fa-lock-open"></i> なし (不要)
+              </button>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-1">「なし」に設定すると、起動時のパスワード入力画面をスキップします。</p>
+          </div>
+
+          <hr class="border-slate-100">
+
+          <div class="space-y-2">
+            <label class="block text-xs font-bold text-slate-600">顧問先パスワードの変更</label>
+            <input type="password" id="new-password" inputmode="numeric" pattern="[0-9]*" placeholder="新しいパスワード (数字)" class="w-full border border-slate-200 rounded-xl p-2.5 text-sm bg-slate-50 focus:ring-2 focus:ring-blue-500 focus:outline-none">
             <button onclick="changePassword()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2 rounded-xl text-xs transition">
               パスワードを更新
             </button>
           </div>
         </div>
 
-        <!-- JSONエクスポート/インポート -->
+        <!-- JSONバックアップ & 復元 -->
         <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 space-y-3">
           <h2 class="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2.5 flex items-center gap-2">
             <i class="fa-solid fa-database text-blue-500"></i> JSONバックアップ & 復元
           </h2>
           <div class="grid grid-cols-2 gap-2 pt-1">
-            <button onclick="exportJSON()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+            <button onclick="exportJSON()" class="bg-slate-700 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
               <i class="fa-solid fa-download"></i> エクスポート
             </button>
             <label class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition">
@@ -383,73 +460,110 @@
 
   </div>
 
-  <!-- ==================== 自前モーダル & トースト ==================== -->
-  <div id="custom-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl shadow-2xl p-5 w-full max-w-xs text-center space-y-4">
-      <h3 id="modal-title" class="font-bold text-slate-800 text-sm">確認</h3>
-      <p id="modal-body" class="text-xs text-slate-600">本当に実行しますか？</p>
-      <div id="modal-input-container" class="hidden text-left space-y-2">
-        <!-- JS動的挿入 -->
-      </div>
-      <div class="flex gap-2 pt-1">
-        <button id="modal-cancel-btn" class="flex-1 bg-slate-100 text-slate-600 font-bold py-2 rounded-xl text-xs">キャンセル</button>
-        <button id="modal-confirm-btn" class="flex-1 bg-rose-600 text-white font-bold py-2 rounded-xl text-xs">実行</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none space-y-2 w-full max-w-xs px-4"></div>
-
-  <!-- ==================== 3. JavaScript ロジック ==================== -->
+  <!-- ==================== JavaScript スクリプト ==================== -->
   <script>
     const STORAGE_KEY = 'kpi_app_data_v4';
+    const DEFAULT_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"; // 1234
     
-    // 事務所パスワード ("110421") 用の難読コード
-    const OFFICE_PASS_CODES = [49,49,48,52,50,49];
-    const DEFAULT_CLIENT_HASH = "03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4"; // "1234"
+    // 事務所パスワード難読化 (110421)
+    const O_HASH_BYTES = [56, 97, 57, 102, 53, 56, 56, 102, 57, 52, 50, 97, 101, 100, 97, 98, 51, 99, 56, 102, 100, 97, 57, 52, 98, 51, 57, 101, 101, 54, 55, 97, 54, 102, 57, 57, 100, 56, 52, 52, 102, 53, 54, 100, 52, 52, 57, 57, 54, 52, 97, 102, 52, 101, 98, 97, 53, 100, 99, 100, 101, 102, 54, 51];
+    const OFFICE_HASH = String.fromCharCode.apply(null, O_HASH_BYTES);
 
     let chartInstance = null;
+    let pendingConfirmAction = null;
     let currentSelectedMonth = ""; // YYYY-MM
 
-    // 純粋JS SHA-256 (Web Crypto不可環境の安全なフォールバック)
+    // --- 通知トースト ---
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      const toastIcon = document.getElementById('toast-icon');
+
+      toastText.textContent = message;
+      if (isError) {
+        toastIcon.className = "fa-solid fa-circle-xmark text-rose-400";
+      } else {
+        toastIcon.className = "fa-solid fa-circle-check text-emerald-400";
+      }
+
+      toast.classList.remove('opacity-0', 'pointer-events-none', '-translate-y-4');
+      toast.classList.add('opacity-100', 'translate-y-0');
+
+      setTimeout(() => {
+        toast.classList.remove('opacity-100', 'translate-y-0');
+        toast.classList.add('opacity-0', 'pointer-events-none', '-translate-y-4');
+      }, 2500);
+    }
+
+    // --- カスタムモーダルダイアログ ---
+    function showConfirmModal(title, message, onConfirm) {
+      document.getElementById('confirm-title').textContent = title;
+      document.getElementById('confirm-message').textContent = message;
+      pendingConfirmAction = onConfirm;
+
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+
+    document.getElementById('confirm-cancel-btn').addEventListener('click', () => {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      pendingConfirmAction = null;
+    });
+
+    document.getElementById('confirm-ok-btn').addEventListener('click', () => {
+      if (pendingConfirmAction) pendingConfirmAction();
+      document.getElementById('confirm-modal').classList.add('hidden');
+      pendingConfirmAction = null;
+    });
+
+    // --- 暗号化フォールバック ---
+    async function sha256(plain) {
+      if (window.crypto && window.crypto.subtle) {
+        try {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(plain);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch(e) {}
+      }
+      return jsSha256(plain);
+    }
+
     function jsSha256(ascii) {
       function rightRotate(value, amount) { return (value>>>amount) | (value<<(32-amount)); }
-      var mathPow = Math.pow, maxWord = mathPow(2, 32), lengthProperty = 'length';
-      var i, j, result = '', words = [], asciiBitLength = ascii[lengthProperty]*8;
-      var hash = [], k = [];
-      var primeCounter = 0;
-      var isPrime = function(n) {
-        for (var factor = 2; factor * factor <= n; factor++) {
-          if (n % factor === 0) return false;
-        }
-        return true;
-      };
-      for (var candidate = 2; primeCounter < 64; candidate++) {
-        if (isPrime(candidate)) {
-          if (primeCounter < 8) hash[primeCounter] = (mathPow(candidate, 1/2)*maxWord)|0;
-          k[primeCounter] = (mathPow(candidate, 1/3)*maxWord)|0;
-          primeCounter++;
-        }
-      }
+      var mathPow = Math.pow, maxWord = mathPow(2, 32), lengthProperty = 'length', i, j, result = '';
+      var words = [], asciiBitLength = ascii[lengthProperty] * 8;
+      var hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+      var k = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
       ascii += '\x80';
-      while (ascii[lengthProperty]%64 - 56) ascii += '\x00';
+      while (ascii[lengthProperty] % 64 - 56) ascii += '\x00';
       for (i = 0; i < ascii[lengthProperty]; i++) {
         j = ascii.charCodeAt(i);
         if (j>>8) return;
-        words[i>>2] |= j << ((3 - i%4)*8);
+        words[i>>2] |= j << ((3 - i)%4)*8;
       }
       words[words[lengthProperty]] = ((asciiBitLength/maxWord)|0);
       words[words[lengthProperty]] = (asciiBitLength);
       for (j = 0; j < words[lengthProperty];) {
         var w = words.slice(j, j += 16);
-        var oldHash = hash.slice(0);
+        var oldHash = hash;
         hash = hash.slice(0, 8);
         for (i = 0; i < 64; i++) {
-          var w15 = w[i - 15], w2 = w[i - 2];
-          var a = hash[0], e = hash[4];
-          var temp1 = hash[7] + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) + ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] + (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
-          var temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
-          hash = [(temp1 + temp2)|0, hash[0], hash[1], hash[2], (hash[3] + temp1)|0, hash[4], hash[5], hash[6]];
+          var s0 = rightRotate(w[i-15], 7) ^ rightRotate(w[i-15], 18) ^ (w[i-15] >>> 3);
+          var s1 = rightRotate(w[i-2], 17) ^ rightRotate(w[i-2], 19) ^ (w[i-2] >>> 10);
+          if (i >= 16) w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+          var ch = (hash[4] & hash[5]) ^ (~hash[4] & hash[6]);
+          var maj = (hash[0] & hash[1]) ^ (hash[0] & hash[2]) ^ (hash[1] & hash[2]);
+          var temp1 = (hash[7] + (rightRotate(hash[4], 6) ^ rightRotate(hash[4], 11) ^ rightRotate(hash[4], 25)) + ch + k[i] + w[i]) | 0;
+          var temp2 = ((rightRotate(hash[0], 2) ^ rightRotate(hash[0], 13) ^ rightRotate(hash[0], 22)) + maj) | 0;
+          hash = [(temp1 + temp2)|0].concat(hash);
+          hash[4] = (hash[4] + temp1)|0;
         }
         for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i])|0;
       }
@@ -462,78 +576,16 @@
       return result;
     }
 
-    async function computeHash(plain) {
-      if (window.crypto && window.crypto.subtle) {
-        try {
-          const encoder = new TextEncoder();
-          const data = encoder.encode(plain);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-          return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        } catch(e) {}
-      }
-      return jsSha256(plain);
-    }
-
-    function showToast(msg, isError = false) {
-      const container = document.getElementById('toast-container');
-      const toast = document.createElement('div');
-      toast.className = `p-3 rounded-2xl text-xs font-bold text-white shadow-lg transition-all duration-300 transform -translate-y-2 opacity-0 flex items-center justify-between ${isError ? 'bg-rose-600' : 'bg-slate-800'}`;
-      toast.innerHTML = `<span>${msg}</span><i class="fa-solid ${isError ? 'fa-circle-xmark' : 'fa-circle-check'} ml-2"></i>`;
-      container.appendChild(toast);
-
-      setTimeout(() => {
-        toast.classList.remove('-translate-y-2', 'opacity-0');
-      }, 10);
-
-      setTimeout(() => {
-        toast.classList.add('opacity-0', '-translate-y-2');
-        setTimeout(() => toast.remove(), 300);
-      }, 2500);
-    }
-
-    function showModal({ title, body, inputHtml, confirmText = '実行', confirmClass = 'bg-rose-600 text-white', onConfirm }) {
-      const modal = document.getElementById('custom-modal');
-      document.getElementById('modal-title').textContent = title;
-      document.getElementById('modal-body').textContent = body || '';
-      
-      const inputContainer = document.getElementById('modal-input-container');
-      if (inputHtml) {
-        inputContainer.innerHTML = inputHtml;
-        inputContainer.classList.remove('hidden');
-      } else {
-        inputContainer.innerHTML = '';
-        inputContainer.classList.add('hidden');
-      }
-
-      const confirmBtn = document.getElementById('modal-confirm-btn');
-      confirmBtn.textContent = confirmText;
-      confirmBtn.className = `flex-1 font-bold py-2 rounded-xl text-xs transition ${confirmClass}`;
-
-      modal.classList.remove('hidden');
-
-      const cleanup = () => {
-        modal.classList.add('hidden');
-        confirmBtn.onclick = null;
-        document.getElementById('modal-cancel-btn').onclick = null;
-      };
-
-      document.getElementById('modal-cancel-btn').onclick = cleanup;
-      confirmBtn.onclick = () => {
-        if (onConfirm) onConfirm();
-        cleanup();
-      };
-    }
-
+    // --- 認証機能 ---
     async function checkPassword() {
       const input = document.getElementById('password-input').value;
-      if (!input) return;
+      if (!input) return showToast('パスワードを入力してください', true);
 
-      const officePass = OFFICE_PASS_CODES.map(c => String.fromCharCode(c)).join('');
-      const hashedInput = await computeHash(input);
+      const hashedInput = await sha256(input);
       const data = loadData();
-      const clientHash = data.authHash || DEFAULT_CLIENT_HASH;
+      const targetHash = data.authHash || DEFAULT_HASH;
 
-      if (input === officePass || hashedInput === clientHash) {
+      if (hashedInput === targetHash || hashedInput === OFFICE_HASH) {
         document.getElementById('auth-overlay').classList.add('hidden');
         document.getElementById('app-content').classList.remove('hidden');
         sessionStorage.setItem('kpi_authenticated_v4', 'true');
@@ -543,9 +595,45 @@
       }
     }
 
+    document.getElementById('password-input').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') checkPassword();
+    });
+
     function logout() {
+      const data = loadData();
       sessionStorage.removeItem('kpi_authenticated_v4');
+      if (data.noPassword === true) {
+        showToast('パスワード無効化中のため直接アクセス可能です');
+        return;
+      }
       location.reload();
+    }
+
+    function togglePasswordProtection(enable) {
+      const data = loadData();
+      data.noPassword = !enable;
+      saveData(data);
+      if (enable) {
+        showToast('パスワード保護を有効にしました');
+      } else {
+        showToast('パスワード保護を無効にしました');
+      }
+    }
+
+    function updatePasswordSettingUI(data) {
+      const isNoPassword = data.noPassword === true;
+      const btnEnable = document.getElementById('btn-pass-enable');
+      const btnDisable = document.getElementById('btn-pass-disable');
+      
+      if (!btnEnable || !btnDisable) return;
+
+      if (isNoPassword) {
+        btnEnable.className = "py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 text-xs font-bold flex items-center justify-center gap-1.5 transition";
+        btnDisable.className = "py-2.5 px-3 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm";
+      } else {
+        btnEnable.className = "py-2.5 px-3 rounded-xl border-2 border-blue-500 bg-blue-50 text-blue-700 text-xs font-bold flex items-center justify-center gap-1.5 transition shadow-sm";
+        btnDisable.className = "py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 text-xs font-bold flex items-center justify-center gap-1.5 transition";
+      }
     }
 
     async function changePassword() {
@@ -553,42 +641,35 @@
       if (!newPass) return showToast('新しいパスワードを入力してください', true);
 
       const data = loadData();
-      data.authHash = await computeHash(newPass);
+      data.authHash = await sha256(newPass);
       saveData(data);
 
       document.getElementById('new-password').value = '';
       showToast('顧問先パスワードを更新しました');
     }
 
+    // --- データ読み書き (localStorage) ---
     function loadData() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          // 既存データの型補完
-          parsed.kpis.forEach(k => {
-            if (!k.type) k.type = 'increase';
-          });
-          return parsed;
-        } catch(e) {}
+        try { return JSON.parse(saved); } catch(e) {}
       }
 
       return {
-        authHash: DEFAULT_CLIENT_HASH,
+        authHash: DEFAULT_HASH,
+        noPassword: false,
         kpis: [
           { id: 'kpi_1', title: '月間売上', target: 500, unit: '万円', type: 'increase' },
           { id: 'kpi_2', title: '新規獲得件数', target: 30, unit: '件', type: 'increase' },
-          { id: 'kpi_3', title: 'クレーム件数', target: 3, unit: '件', type: 'decrease' }
+          { id: 'kpi_3', title: 'クレーム発生数', target: 2, unit: '件', type: 'decrease' }
         ],
         logs: [
-          { id: 'log_1', kpi_id: 'kpi_1', date: '2026-07-05', actual: 150, comment: '大型契約成約' },
-          { id: 'log_2', kpi_id: 'kpi_1', date: '2026-07-15', actual: 200, comment: '中堅案件複数追加' },
-          { id: 'log_3', kpi_id: 'kpi_2', date: '2026-07-10', actual: 28, comment: 'Web問合せ増加' },
-          { id: 'log_4', kpi_id: 'kpi_3', date: '2026-07-12', actual: 2, comment: '配送遅延クレーム' }
+          { id: 'log_1', kpi_id: 'kpi_1', date: getTodayString(), actual: 150, comment: '大型案件完了' },
+          { id: 'log_2', kpi_id: 'kpi_2', date: getTodayString(), actual: 18, comment: 'Web問い合わせ増加' },
+          { id: 'log_3', kpi_id: 'kpi_3', date: getTodayString(), actual: 1, comment: '誤配送件' }
         ],
         actions: [
-          { id: 'act_1', kpi_id: 'kpi_1', title: '既存客へのアップセルアプローチ', assignee: '山田', dueDate: '2026-07-31', status: 'in_progress' },
-          { id: 'act_2', kpi_id: 'kpi_3', title: '梱包前検品チェックシート導入', assignee: '佐藤', dueDate: '2026-07-20', status: 'done' }
+          { id: 'act_1', kpi_id: 'kpi_1', title: '既存客へのアップセル提案', assignee: '山田', dueDate: getTodayString(), status: 'in_progress' }
         ]
       };
     }
@@ -598,37 +679,35 @@
       renderUI();
     }
 
-    function initApp() {
-      const today = new Date();
-      currentSelectedMonth = today.toISOString().slice(0, 7);
-      document.getElementById('selected-month').value = currentSelectedMonth;
-      document.getElementById('input-date').valueAsDate = today;
+    function getTodayString() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
 
-      // CSVの初期日付セット
-      const firstDay = `${currentSelectedMonth}-01`;
-      const todayStr = today.toISOString().slice(0, 10);
-      document.getElementById('csv-start-date').value = firstDay;
-      document.getElementById('csv-end-date').value = todayStr;
+    function getCurrentMonthString() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
 
+    // --- 月切り替え機能 ---
+    function onMonthSelectChange() {
+      currentSelectedMonth = document.getElementById('selected-month').value;
       renderUI();
     }
 
     function changeMonth(delta) {
+      if (!currentSelectedMonth) return;
       const [year, month] = currentSelectedMonth.split('-').map(Number);
-      const d = new Date(year, month - 1 + delta, 1);
-      currentSelectedMonth = d.toISOString().slice(0, 7);
+      const date = new Date(year, month - 1 + delta, 1);
+      
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      currentSelectedMonth = `${y}-${m}`;
       document.getElementById('selected-month').value = currentSelectedMonth;
       renderUI();
     }
 
-    function onMonthChange() {
-      const val = document.getElementById('selected-month').value;
-      if (val) {
-        currentSelectedMonth = val;
-        renderUI();
-      }
-    }
-
+    // --- タブ切り替え ---
     function switchTab(tabName) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
       document.getElementById(`tab-${tabName}`).classList.remove('hidden');
@@ -645,13 +724,31 @@
       }
 
       const subtitles = {
-        'dashboard': '当月進捗の一覧',
+        'dashboard': '進捗状況の一覧',
         'input': '日次実績データの入力',
-        'kpi': 'KPI項目の設定・編集',
+        'kpi': 'KPI項目の設定・追加',
         'actions': '施策・タスクの追跡',
         'settings': 'データとセキュリティ管理'
       };
       document.getElementById('header-subtitle').textContent = subtitles[tabName] || '';
+    }
+
+    // --- 初期化 & 描画 ---
+    function initApp() {
+      document.getElementById('input-date').value = getTodayString();
+      
+      // 当月を初期選択
+      if (!currentSelectedMonth) {
+        currentSelectedMonth = getCurrentMonthString();
+      }
+      document.getElementById('selected-month').value = currentSelectedMonth;
+
+      // CSVの初期表示期間設定（今月1日〜今日）
+      const firstDayStr = `${currentSelectedMonth}-01`;
+      document.getElementById('csv-start-date').value = firstDayStr;
+      document.getElementById('csv-end-date').value = getTodayString();
+
+      renderUI();
     }
 
     function renderUI() {
@@ -661,6 +758,7 @@
       renderRecentLogs(data);
       renderKPIManagementList(data.kpis);
       renderActionsList(data);
+      updatePasswordSettingUI(data);
     }
 
     function renderSelects(kpis) {
@@ -672,6 +770,7 @@
       csvSelect.innerHTML = `<option value="all">すべてのKPI</option>` + optionsHtml;
     }
 
+    // --- ダッシュボード描画 ---
     function renderDashboard(data) {
       const container = document.getElementById('kpi-cards-container');
       container.innerHTML = '';
@@ -680,59 +779,45 @@
       let countSuccess = 0;
       let countDanger = 0;
 
-      // 当月ログに絞り込み
-      const monthlyLogs = data.logs.filter(l => l.date && l.date.startsWith(currentSelectedMonth));
+      const targetMonthStr = currentSelectedMonth; // YYYY-MM
+      document.getElementById('chart-month-title').textContent = `${targetMonthStr.replace('-', '年')}月`;
 
       data.kpis.forEach(kpi => {
-        const actualTotal = monthlyLogs
-          .filter(l => l.kpi_id === kpi.id)
+        // 選択された年月ログのみ集計
+        const actualTotal = data.logs
+          .filter(l => l.kpi_id === kpi.id && l.date && l.date.startsWith(targetMonthStr))
           .reduce((sum, l) => sum + Number(l.actual), 0);
 
         const isDecrease = kpi.type === 'decrease';
+        let rate = 0;
         let isSuccess = false;
-        let rateDisplay = 0;
-        let badgeClass = '';
-        let barClass = '';
-        let icon = '';
 
-        if (!isDecrease) {
-          // 増やす目標
-          rateDisplay = kpi.target > 0 ? Math.round((actualTotal / kpi.target) * 100) : 0;
-          if (rateDisplay >= 100) {
-            isSuccess = true;
-            badgeClass = 'bg-emerald-100 text-emerald-700';
-            barClass = 'bg-emerald-500';
-            icon = 'fa-circle-check';
-          } else if (rateDisplay >= 80) {
-            badgeClass = 'bg-amber-100 text-amber-700';
-            barClass = 'bg-amber-500';
-            icon = 'fa-circle-exclamation';
-          } else {
-            badgeClass = 'bg-rose-100 text-rose-700';
-            barClass = 'bg-rose-500';
-            icon = 'fa-triangle-exclamation';
-          }
+        if (isDecrease) {
+          // 減らす目標：目標値以下なら達成
+          rate = kpi.target > 0 ? Math.round((actualTotal / kpi.target) * 100) : 0;
+          isSuccess = actualTotal <= kpi.target;
         } else {
-          // 減らす目標 (目標値以下なら達成)
-          if (actualTotal <= kpi.target) {
-            isSuccess = true;
-            rateDisplay = actualTotal === 0 ? 100 : Math.round((kpi.target / actualTotal) * 100);
-            badgeClass = 'bg-emerald-100 text-emerald-700';
-            barClass = 'bg-emerald-500';
-            icon = 'fa-circle-check';
-          } else {
-            rateDisplay = Math.round((kpi.target / actualTotal) * 100);
-            badgeClass = 'bg-rose-100 text-rose-700';
-            barClass = 'bg-rose-500';
-            icon = 'fa-triangle-exclamation';
-          }
+          // 増やす目標：目標値以上なら達成
+          rate = kpi.target > 0 ? Math.round((actualTotal / kpi.target) * 100) : 0;
+          isSuccess = rate >= 100;
         }
 
-        if (isSuccess) countSuccess++;
-        else countDanger++;
+        let badgeClass = 'bg-rose-100 text-rose-700';
+        let barClass = 'bg-rose-500';
+        let icon = 'fa-triangle-exclamation';
 
-        const targetLabel = isDecrease ? `目標: ${kpi.target.toLocaleString()} ${kpi.unit} 以下` : `目標: ${kpi.target.toLocaleString()} ${kpi.unit}`;
-        const typeBadge = isDecrease ? `<span class="text-[9px] font-normal bg-purple-50 text-purple-600 border border-purple-200 px-1.5 py-0.2 rounded">抑制</span>` : '';
+        if (isSuccess) {
+          badgeClass = 'bg-emerald-100 text-emerald-700';
+          barClass = 'bg-emerald-500';
+          icon = 'fa-circle-check';
+          countSuccess++;
+        } else {
+          countDanger++;
+        }
+
+        const typeBadge = isDecrease 
+          ? `<span class="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">減らす目標</span>`
+          : `<span class="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">増やす目標</span>`;
 
         container.innerHTML += `
           <div class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 space-y-2.5">
@@ -742,17 +827,17 @@
                 ${typeBadge}
               </div>
               <span class="text-xs font-bold px-2.5 py-1 rounded-full ${badgeClass} flex items-center gap-1">
-                <i class="fa-solid ${icon} text-[10px]"></i> ${isDecrease && isSuccess ? '順調' : rateDisplay + '%'}
+                <i class="fa-solid ${icon} text-[10px]"></i> ${isDecrease ? (isSuccess ? '達成(上限以下)' : '超過') : rate + '%'}
               </span>
             </div>
             
             <div class="flex justify-between items-baseline text-xs text-slate-500">
               <span>当月実績: <strong class="text-slate-800 text-sm font-bold">${actualTotal.toLocaleString()}</strong> ${kpi.unit}</span>
-              <span>${targetLabel}</span>
+              <span>目標: ${kpi.target.toLocaleString()} ${kpi.unit}</span>
             </div>
 
             <div class="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-              <div class="${barClass} h-full transition-all duration-500 rounded-full" style="width: ${Math.min(rateDisplay, 100)}%"></div>
+              <div class="${barClass} h-full transition-all duration-500 rounded-full" style="width: ${Math.min(rate, 100)}%"></div>
             </div>
           </div>
         `;
@@ -762,18 +847,18 @@
       document.getElementById('summary-success').textContent = countSuccess;
       document.getElementById('summary-danger').textContent = countDanger;
 
-      renderBarChart(data, monthlyLogs);
+      renderBarChart(data, targetMonthStr);
     }
 
-    function renderBarChart(data, monthlyLogs) {
+    function renderBarChart(data, targetMonthStr) {
       const ctx = document.getElementById('kpiBarChart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
 
       const labels = data.kpis.map(k => k.title);
       const targets = data.kpis.map(k => k.target);
       const actuals = data.kpis.map(k => {
-        return monthlyLogs
-          .filter(l => l.kpi_id === k.id)
+        return data.logs
+          .filter(l => l.kpi_id === k.id && l.date && l.date.startsWith(targetMonthStr))
           .reduce((sum, l) => sum + Number(l.actual), 0);
       });
 
@@ -782,28 +867,15 @@
         data: {
           labels: labels,
           datasets: [
-            {
-              label: '当月実績',
-              data: actuals,
-              backgroundColor: '#3b82f6',
-              borderRadius: 6
-            },
-            {
-              label: '目標値',
-              data: targets,
-              backgroundColor: '#e2e8f0',
-              borderRadius: 6
-            }
+            { label: '当月実績', data: actuals, backgroundColor: '#3b82f6', borderRadius: 6 },
+            { label: '月間目標', data: targets, backgroundColor: '#e2e8f0', borderRadius: 6 }
           ]
         },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { font: { size: 10 } }
-            }
+            legend: { position: 'bottom', labels: { font: { size: 10 } } }
           },
           scales: {
             y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
@@ -813,6 +885,7 @@
       });
     }
 
+    // --- 実績登録 & ログ削除 ---
     function addLog() {
       const kpiId = document.getElementById('input-kpi-select').value;
       const date = document.getElementById('input-date').value;
@@ -825,7 +898,7 @@
       data.logs.push({
         id: 'log_' + Date.now(),
         kpi_id: kpiId,
-        date: date || new Date().toISOString().slice(0, 10),
+        date: date || getTodayString(),
         actual: Number(actual),
         comment: comment
       });
@@ -834,20 +907,18 @@
 
       document.getElementById('input-actual').value = '';
       document.getElementById('input-comment').value = '';
-      showToast('実績を登録しました！');
+      showToast('実績を登録しました');
       switchTab('dashboard');
     }
 
     function renderRecentLogs(data) {
       const list = document.getElementById('recent-logs-list');
-      const monthlyLogs = data.logs.filter(l => l.date && l.date.startsWith(currentSelectedMonth));
-
-      if (monthlyLogs.length === 0) {
-        list.innerHTML = `<p class="text-xs text-slate-400 py-3 text-center">選択月 (${currentSelectedMonth}) の履歴はありません</p>`;
+      if (!data.logs || data.logs.length === 0) {
+        list.innerHTML = `<p class="text-xs text-slate-400 py-2 text-center">履歴はまだありません</p>`;
         return;
       }
 
-      const sortedLogs = [...monthlyLogs].reverse();
+      const sortedLogs = [...data.logs].reverse().slice(0, 10);
       list.innerHTML = sortedLogs.map(log => {
         const kpi = data.kpis.find(k => k.id === log.kpi_id);
         const kpiTitle = kpi ? kpi.title : '不明なKPI';
@@ -859,7 +930,7 @@
               <p class="font-bold text-slate-700">${kpiTitle}: <span class="text-blue-600 font-extrabold">+${log.actual} ${unit}</span></p>
               <p class="text-[10px] text-slate-400">${log.date} ${log.comment ? '• ' + log.comment : ''}</p>
             </div>
-            <button onclick="requestDeleteLog('${log.id}')" class="text-slate-300 hover:text-rose-500 p-1 transition">
+            <button onclick="requestDeleteLog('${log.id}')" class="text-slate-300 hover:text-rose-500 p-1.5 transition">
               <i class="fa-solid fa-trash"></i>
             </button>
           </div>
@@ -868,27 +939,22 @@
     }
 
     function requestDeleteLog(logId) {
-      showModal({
-        title: 'ログの削除',
-        body: 'この実績ログを削除しますか？',
-        confirmText: '削除',
-        confirmClass: 'bg-rose-600 text-white',
-        onConfirm: () => {
-          const data = loadData();
-          data.logs = data.logs.filter(l => l.id !== logId);
-          saveData(data);
-          showToast('実績ログを削除しました');
-        }
+      showConfirmModal('ログの削除', 'この実績データを削除しますか？', () => {
+        const data = loadData();
+        data.logs = data.logs.filter(l => l.id !== logId);
+        saveData(data);
+        showToast('実績ログを削除しました');
       });
     }
 
+    // --- KPIの追加・編集・削除 ---
     function addKPI() {
       const title = document.getElementById('new-kpi-title').value;
       const target = document.getElementById('new-kpi-target').value;
       const unit = document.getElementById('new-kpi-unit').value || '件';
-      const type = document.getElementById('new-kpi-type').value || 'increase';
+      const type = document.getElementById('new-kpi-type').value;
 
-      if (!title || !target) return showToast('KPI名と目標値を入力してください', true);
+      if (!title || target === '') return showToast('KPI名と目標値を入力してください', true);
 
       const data = loadData();
       data.kpis.push({
@@ -914,15 +980,15 @@
           <div>
             <div class="flex items-center gap-1.5">
               <p class="font-bold text-slate-800">${kpi.title}</p>
-              ${kpi.type === 'decrease' ? '<span class="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.2 rounded font-bold">減らす</span>' : ''}
+              <span class="text-[9px] text-slate-400">${kpi.type === 'decrease' ? '(減らす目標)' : '(増やす目標)'}</span>
             </div>
             <p class="text-[10px] text-slate-400">目標: ${kpi.target.toLocaleString()} ${kpi.unit}</p>
           </div>
           <div class="flex items-center gap-1">
-            <button onclick="openEditKPIModal('${kpi.id}')" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2.5 py-1 rounded-lg text-xs transition">
+            <button onclick="openEditKPIModal('${kpi.id}')" class="bg-blue-50 hover:bg-blue-100 text-blue-600 font-bold px-2.5 py-1 rounded transition text-xs">
               編集
             </button>
-            <button onclick="requestDeleteKPI('${kpi.id}')" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1 rounded-lg text-xs transition">
+            <button onclick="requestDeleteKPI('${kpi.id}')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-2.5 py-1 rounded transition text-xs">
               削除
             </button>
           </div>
@@ -935,72 +1001,54 @@
       const kpi = data.kpis.find(k => k.id === kpiId);
       if (!kpi) return;
 
-      const inputHtml = `
-        <div>
-          <label class="block text-[11px] font-bold text-slate-600 mb-1">KPI名</label>
-          <input type="text" id="edit-kpi-title" value="${kpi.title}" class="w-full border rounded-xl p-2 text-xs bg-slate-50">
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">目標値</label>
-            <input type="number" id="edit-kpi-target" value="${kpi.target}" class="w-full border rounded-xl p-2 text-xs bg-slate-50">
-          </div>
-          <div>
-            <label class="block text-[11px] font-bold text-slate-600 mb-1">単位</label>
-            <input type="text" id="edit-kpi-unit" value="${kpi.unit}" class="w-full border rounded-xl p-2 text-xs bg-slate-50">
-          </div>
-        </div>
-        <div>
-          <label class="block text-[11px] font-bold text-slate-600 mb-1">目標タイプ</label>
-          <select id="edit-kpi-type" class="w-full border rounded-xl p-2 text-xs bg-slate-50 font-medium">
-            <option value="increase" ${kpi.type !== 'decrease' ? 'selected' : ''}>📈 増やす目標</option>
-            <option value="decrease" ${kpi.type === 'decrease' ? 'selected' : ''}>📉 減らす目標</option>
-          </select>
-        </div>
-      `;
+      document.getElementById('edit-kpi-id').value = kpi.id;
+      document.getElementById('edit-kpi-title').value = kpi.title;
+      document.getElementById('edit-kpi-target').value = kpi.target;
+      document.getElementById('edit-kpi-unit').value = kpi.unit;
+      document.getElementById('edit-kpi-type').value = kpi.type || 'increase';
 
-      showModal({
-        title: 'KPIの修正',
-        body: '',
-        inputHtml: inputHtml,
-        confirmText: '保存',
-        confirmClass: 'bg-blue-600 text-white',
-        onConfirm: () => {
-          const newTitle = document.getElementById('edit-kpi-title').value;
-          const newTarget = document.getElementById('edit-kpi-target').value;
-          const newUnit = document.getElementById('edit-kpi-unit').value || '件';
-          const newType = document.getElementById('edit-kpi-type').value;
+      document.getElementById('edit-kpi-modal').classList.remove('hidden');
+    }
 
-          if (!newTitle || !newTarget) return showToast('KPI名と目標値を入力してください', true);
+    function closeEditKPIModal() {
+      document.getElementById('edit-kpi-modal').classList.add('hidden');
+    }
 
-          kpi.title = newTitle;
-          kpi.target = Number(newTarget);
-          kpi.unit = newUnit;
-          kpi.type = newType;
+    function saveEditedKPI() {
+      const kpiId = document.getElementById('edit-kpi-id').value;
+      const title = document.getElementById('edit-kpi-title').value;
+      const target = document.getElementById('edit-kpi-target').value;
+      const unit = document.getElementById('edit-kpi-unit').value;
+      const type = document.getElementById('edit-kpi-type').value;
 
-          saveData(data);
-          showToast('KPI設定を更新しました');
-        }
-      });
+      if (!title || target === '') return showToast('KPI名と目標値を入力してください', true);
+
+      const data = loadData();
+      const kpi = data.kpis.find(k => k.id === kpiId);
+      if (kpi) {
+        kpi.title = title;
+        kpi.target = Number(target);
+        kpi.unit = unit;
+        kpi.type = type;
+        saveData(data);
+        showToast('KPI設定を更新しました');
+      }
+
+      closeEditKPIModal();
     }
 
     function requestDeleteKPI(kpiId) {
-      showModal({
-        title: 'KPIの削除',
-        body: 'このKPIを削除しますか？紐づく実績ログや施策も削除されます。',
-        confirmText: '削除',
-        confirmClass: 'bg-rose-600 text-white',
-        onConfirm: () => {
-          const data = loadData();
-          data.kpis = data.kpis.filter(k => k.id !== kpiId);
-          data.logs = data.logs.filter(l => l.kpi_id !== kpiId);
-          data.actions = data.actions.filter(a => a.kpi_id !== kpiId);
-          saveData(data);
-          showToast('KPIを削除しました');
-        }
+      showConfirmModal('KPIの削除', 'このKPIと関連する実績データ・施策をすべて削除しますか？', () => {
+        const data = loadData();
+        data.kpis = data.kpis.filter(k => k.id !== kpiId);
+        data.logs = data.logs.filter(l => l.kpi_id !== kpiId);
+        if (data.actions) data.actions = data.actions.filter(a => a.kpi_id !== kpiId);
+        saveData(data);
+        showToast('KPIを削除しました');
       });
     }
 
+    // --- アクション (施策) ---
     function addAction() {
       const kpiId = document.getElementById('action-kpi-select').value;
       const title = document.getElementById('action-title').value;
@@ -1022,10 +1070,9 @@
       });
 
       saveData(data);
-
       document.getElementById('action-title').value = '';
       document.getElementById('action-assignee').value = '';
-      showToast('アクションを登録しました');
+      showToast('アクションを追加しました');
     }
 
     function renderActionsList(data) {
@@ -1083,43 +1130,32 @@
     }
 
     function requestDeleteAction(actionId) {
-      showModal({
-        title: 'アクションの削除',
-        body: 'この施策タスクを削除しますか？',
-        confirmText: '削除',
-        confirmClass: 'bg-rose-600 text-white',
-        onConfirm: () => {
-          const data = loadData();
-          data.actions = data.actions.filter(a => a.id !== actionId);
-          saveData(data);
-          showToast('アクションを削除しました');
-        }
+      showConfirmModal('アクションの削除', 'このアクションを削除しますか？', () => {
+        const data = loadData();
+        data.actions = data.actions.filter(a => a.id !== actionId);
+        saveData(data);
+        showToast('アクションを削除しました');
       });
     }
 
+    // --- CSVエクスポート ---
     function exportCSV() {
-      const selectedKpiId = document.getElementById('csv-kpi-select').value;
+      const data = loadData();
+      const selectedKPI = document.getElementById('csv-kpi-select').value;
       const startDate = document.getElementById('csv-start-date').value;
       const endDate = document.getElementById('csv-end-date').value;
 
-      const data = loadData();
-      let logs = [...data.logs];
+      if (!startDate || !endDate) return showToast('期間を指定してください', true);
 
-      if (selectedKpiId !== 'all') {
-        logs = logs.filter(l => l.kpi_id === selectedKpiId);
-      }
-      if (startDate) {
-        logs = logs.filter(l => l.date >= startDate);
-      }
-      if (endDate) {
-        logs = logs.filter(l => l.date <= endDate);
+      // ログのフィルタリング
+      let logs = data.logs.filter(l => l.date >= startDate && l.date <= endDate);
+      if (selectedKPI !== 'all') {
+        logs = logs.filter(l => l.kpi_id === selectedKPI);
       }
 
-      if (logs.length === 0) {
-        return showToast('指定された条件のログデータがありません', true);
-      }
+      if (logs.length === 0) return showToast('指定期間の実績データがありません', true);
 
-      // KPI順 ＞ 日付昇順で整列
+      // KPI順 -> 日付順（昇順）にソート
       logs.sort((a, b) => {
         if (a.kpi_id !== b.kpi_id) {
           return a.kpi_id.localeCompare(b.kpi_id);
@@ -1127,33 +1163,35 @@
         return a.date.localeCompare(b.date);
       });
 
-      let csvContent = '\uFEFF日付,KPI名,実績値,単位,目標タイプ,メモ・要因\n';
+      // CSV文字列作成 (UTF-8 BOM付き)
+      let csvContent = "\uFEFF日付,KPI名,実績値,単位,コメント\n";
+
       logs.forEach(log => {
         const kpi = data.kpis.find(k => k.id === log.kpi_id);
-        const kpiTitle = kpi ? kpi.title : '不明なKPI';
+        const kpiTitle = kpi ? `"${kpi.title.replace(/"/g, '""')}"` : '不明';
         const unit = kpi ? kpi.unit : '';
-        const typeStr = kpi && kpi.type === 'decrease' ? '減らす' : '増やす';
-        const comment = (log.comment || '').replace(/"/g, '""');
+        const comment = log.comment ? `"${log.comment.replace(/"/g, '""')}"` : '';
 
-        csvContent += `"${log.date}","${kpiTitle}",${log.actual},"${unit}","${typeStr}","${comment}"\n`;
+        csvContent += `${log.date},${kpiTitle},${log.actual},${unit},${comment}\n`;
       });
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `KPI_実績データ_${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      showToast('CSVファイルを書き出しました');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `kpi_data_${startDate}_to_${endDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      showToast('CSVを出力しました');
     }
 
+    // --- JSONバックアップ & リセット ---
     function exportJSON() {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(localStorage.getItem(STORAGE_KEY));
       const a = document.createElement('a');
       a.href = dataStr;
-      a.download = `kpi_backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.download = `kpi_backup_${getTodayString()}.json`;
       a.click();
       showToast('JSONファイルを保存しました');
     }
@@ -1166,38 +1204,42 @@
           if (parsed.kpis && parsed.logs) {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
             renderUI();
-            showToast("データを無事に復元しました");
+            showToast('データを復元しました');
           } else {
-            showToast("エラー: 正しいKPIデータ構造ではありません", true);
+            showToast('無効なバックアップファイルです', true);
           }
         } catch (err) {
-          showToast("エラー: JSONの読み込みに失敗しました", true);
+          showToast('JSONの読み込みに失敗しました', true);
         }
       };
       if (e.target.files[0]) reader.readAsText(e.target.files[0]);
     }
 
     function requestResetAllData() {
-      showModal({
-        title: 'データのリセット',
-        body: 'すべてのKPI・ログ・施策データが消去されます。この操作は取り消せません。',
-        confirmText: '全消去',
-        confirmClass: 'bg-rose-600 text-white',
-        onConfirm: () => {
-          localStorage.removeItem(STORAGE_KEY);
-          location.reload();
-        }
+      showConfirmModal('全データのリセット', '保存されているすべてのKPI・実績データを削除して初期化します。よろしいですか？', () => {
+        localStorage.removeItem(STORAGE_KEY);
+        location.reload();
       });
     }
 
-    window.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('password-input').focus();
-      if (sessionStorage.getItem('kpi_authenticated_v4') === 'true') {
+    // --- アプリ起動イベント ---
+    function startAppIfAuth() {
+      const data = loadData();
+      if (data.noPassword === true || sessionStorage.getItem('kpi_authenticated_v4') === 'true') {
         document.getElementById('auth-overlay').classList.add('hidden');
         document.getElementById('app-content').classList.remove('hidden');
         initApp();
+      } else {
+        const input = document.getElementById('password-input');
+        if (input) input.focus();
       }
-    });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', startAppIfAuth);
+    } else {
+      startAppIfAuth();
+    }
   </script>
 </body>
 </html>
