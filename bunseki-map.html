@@ -677,17 +677,20 @@
         const FrameworkInfographic = () => {
 
             // デフォルトのURL設定
+            // リンクURLはコードに埋め込まない（HTMLが第三者に渡ってもURLが露出しないようにするため）。
+            // 設定モーダルから「URL設定を読込」でJSONファイルを読み込むことで利用可能になる。
+            // 一度読み込めばブラウザ（localStorage）に保存され、次回以降は読込不要。
             const defaultUrls = {
-                'pestel': 'https://gemini.google.com/share/d/1tUmf1MChpkNfetB5Nt2XrZs1-KQ15uW-?usp=drive_link',
-                '5forces': 'https://gemini.google.com/share/d/1zYH9Huaeadq8116y7TuIsk1gARiZbOyC?usp=drive_link',
-                '3c': 'https://gemini.google.com/share/d/11Gcjww6utB9z5CJZIbTX72UZiYhOQZFX?usp=drive_link',
-                'swot': 'https://gemini.google.com/share/d/1ngsbJYgC9vCuI1EbPxPq2ymyS4jQHiR4?usp=drive_link',
-                'strategy': 'https://gemini.google.com/share/d/1PLE7PXJXszoyGrFwu0OdvjXn5QhSgHQb?usp=drive_link',
-                'bmc': 'https://gemini.google.com/share/d/1a8viDeiYyvfGzzFzwFn5psm2kdWmcq7S?usp=drive_link',
-                '4p': 'https://gemini.google.com/share/d/1esJU4rLwpb7EjZ-4ycLSpBtScPbkEV9c?usp=drive_link',
-                '7s': 'https://gemini.google.com/share/d/14jtFqA7PCJm_4cfHqixab3E5aQwt0V6G?usp=drive_link',
-                'innovator': 'https://gemini.google.com/share/d/1jrTyS0G3L0bEeWSNh2ESoG_geuMX8FVu?usp=drive_link',
-                'kpi': 'https://gemini.google.com/share/d/1WvwkpNUsIre1VNpeGdkHKVnYYUujCF0t?usp=drive_link'
+                'pestel': '',
+                '5forces': '',
+                '3c': '',
+                'swot': '',
+                'strategy': '',
+                'bmc': '',
+                '4p': '',
+                '7s': '',
+                'innovator': '',
+                'kpi': ''
             };
 
             // 状態管理
@@ -780,8 +783,17 @@
 
             // 初期ロード時にローカルストレージから読み込み
             useEffect(() => {
-                // URLはコード側のdefaultUrlsを常に正とする（保存済みの古いURLで上書きしない）。
-                // 過去に設定画面で保存した端末でも、更新後のURLで確実に開くため復元しない。
+                // リンクURLはコードに持たないため、保存済みの設定があれば復元する。
+                // （設定モーダルの「URL設定を読込」でJSONを読み込むと、ここに保存される）
+                const savedUrls = localStorage.getItem('frameworkUrls');
+                if (savedUrls) {
+                    try {
+                        const parsedUrls = JSON.parse(savedUrls);
+                        setUrls({ ...defaultUrls, ...parsedUrls });
+                    } catch (e) {
+                        console.warn('保存済みURL設定の読み込みに失敗:', e);
+                    }
+                }
                 // PESTEL等の分析結果を読み込み
                 setResults(loadResults());
                 // 基本情報を読み込み
@@ -1141,26 +1153,128 @@
                 setIsSettingsOpen(true);
             };
 
-            // 設定を保存する（URLはコード側管理のため、編集はこのセッション内のみ有効。
-            // localStorageには残さない＝次回起動時は常にdefaultUrlsで開く）
+            // 設定を保存する（リンクURLはコードに持たないため、ブラウザに保存して次回以降も使えるようにする）
             const saveSettings = () => {
                 setUrls(tempUrls);
+                try { localStorage.setItem('frameworkUrls', JSON.stringify(tempUrls)); }
+                catch (e) { console.warn('URL設定の保存に失敗:', e); }
                 setIsSettingsOpen(false);
+                setToast('リンクURL設定を保存しました');
+            };
+
+            // --- リンクURL設定をJSONで書き出す（配布用ファイルの作成） ---
+            // ダウンロード方式は exportAllData と同じ（モバイルではWeb Share APIを優先）。
+            // 単純なBlobダウンロードだけだと、Google Sites埋め込みやモバイルで
+            // ファイルが保存できないことがあるため
+            const exportUrlSettings = async () => {
+                const payload = {
+                    appVersion: '1.0',
+                    type: 'frameworkUrls',
+                    exportedAt: new Date().toISOString(),
+                    urls: tempUrls
+                };
+                const jsonStr = JSON.stringify(payload, null, 2);
+                const dateStr = todayStr().replace(/-/g, '');
+                const filename = `メタ視点マップ_リンクURL設定_${dateStr}.json`;
+
+                // モバイル：Web Share API（共有シート）を優先
+                const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+                if (isMobile && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+                    try {
+                        const file = new File([jsonStr], filename, { type: 'application/json' });
+                        if (navigator.canShare({ files: [file] })) {
+                            setToast('保存先を選択してください');
+                            await navigator.share({ files: [file], title: filename });
+                            setToast('リンクURL設定を書き出しました');
+                            return;
+                        }
+                    } catch (e) {
+                        if (e && e.name === 'AbortError') { setToast(''); return; }
+                        console.warn('Web Share失敗、通常ダウンロードへフォールバック:', e);
+                    }
+                }
+
+                // デスクトップ or Web Share非対応: 通常のダウンロード
+                try {
+                    const mime = isMobile ? 'application/octet-stream' : 'application/json';
+                    const blob = new Blob([jsonStr], { type: mime });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => {
+                        try { document.body.removeChild(a); } catch (err) {}
+                        URL.revokeObjectURL(url);
+                    }, 3000);
+                    setToast('リンクURL設定を書き出しました');
+                } catch (e) {
+                    console.error('URL設定の書き出しに失敗:', e);
+                    setToast('書き出しに失敗しました');
+                }
+            };
+
+            // --- リンクURL設定のJSONを読み込む（配布されたファイルを取り込む） ---
+            const importUrlSettings = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    try {
+                        const data = JSON.parse(ev.target.result);
+                        // { urls: {...} } 形式と、URLだけの素のオブジェクトの両方を受け付ける
+                        const loaded = (data && data.urls && typeof data.urls === 'object') ? data.urls : data;
+                        if (!loaded || typeof loaded !== 'object') {
+                            setToast('リンクURL設定のファイルではありません');
+                            return;
+                        }
+                        const known = Object.keys(defaultUrls);
+                        const picked = {};
+                        known.forEach(k => { if (typeof loaded[k] === 'string') picked[k] = loaded[k]; });
+                        if (Object.keys(picked).length === 0) {
+                            setToast('読み込めるリンクURLが含まれていません');
+                            return;
+                        }
+                        const merged = { ...defaultUrls, ...picked };
+                        setTempUrls(merged);
+                        setUrls(merged);
+                        try { localStorage.setItem('frameworkUrls', JSON.stringify(merged)); }
+                        catch (err) { console.warn('URL設定の保存に失敗:', err); }
+                        setToast('リンクURL設定を読み込みました');
+                    } catch (err) {
+                        console.error('URL設定の読み込みに失敗:', err);
+                        setToast('ファイルの読み込みに失敗しました');
+                    }
+                };
+                reader.readAsText(file, 'UTF-8');
+                e.target.value = '';
+            };
+
+            // --- この端末に保存したリンクURL設定を消去する（共用PC等での利用後を想定） ---
+            const clearUrlSettings = () => {
+                if (!window.confirm('この端末に保存したリンクURL設定を消去します。よろしいですか？')) return;
+                try { localStorage.removeItem('frameworkUrls'); }
+                catch (e) { console.warn('URL設定の消去に失敗:', e); }
+                setUrls({ ...defaultUrls });
+                setTempUrls({ ...defaultUrls });
+                setToast('リンクURL設定を消去しました');
             };
 
             // 全データをクリア（取込結果・基本情報・URL設定）
             const clearAllData = () => {
-                if (!window.confirm('すべてのデータ（取り込んだ分析結果・基本情報・リンク設定）を削除します。この操作は取り消せません。よろしいですか？')) return;
+                if (!window.confirm('取り込んだ分析結果と基本情報を削除します。この操作は取り消せません。よろしいですか？\n※リンクURL設定は削除されません（消す場合は設定画面から）')) return;
                 if (!window.confirm('本当に削除してよろしいですか？（最終確認）')) return;
                 try {
                     localStorage.removeItem(RESULT_STORAGE_KEY);
                     localStorage.removeItem(BASIC_INFO_KEY);
-                    localStorage.removeItem('frameworkUrls');
+                    // リンクURL設定（frameworkUrls）は意図的に残す。
+                    // 配布されたJSONを読み込み直す手間を避けるため、消去は設定画面の
+                    // 「この端末から消去」ボタンからのみ行う
                 } catch (e) { console.warn('クリアに失敗:', e); }
                 setResults({});
                 setBasicInfo({ ...EMPTY_BASIC });
-                setUrls(defaultUrls);
-                setToast('すべてのデータを削除しました');
+                setToast('分析結果と基本情報を削除しました');
             };
 
             // --- 全結果をJSONエクスポート（基本情報＋8分析すべて / モバイル対応） ---
@@ -1356,7 +1470,7 @@
                 if (targetUrl) {
                     window.open(targetUrl, '_blank', 'noopener,noreferrer');
                 } else {
-                    alert('リンクURLが設定されていません。右上の設定ボタンから登録してください。');
+                    alert('リンクURLが設定されていません。\n右上の「設定」ボタンから「URL設定を読込」で、配布されたJSONファイルを読み込んでください。');
                 }
             };
 
@@ -1402,7 +1516,7 @@
                         <button 
                             onClick={clearAllData}
                             className="p-2 text-slate-500 hover:text-rose-600 hover:bg-rose-100 rounded-lg transition-colors flex flex-col items-center gap-1"
-                            title="すべてのデータを削除"
+                            title="分析結果と基本情報を削除（リンクURL設定は残ります）"
                         >
                             <IconTrash size={24} />
                             <span className="text-[10px] font-bold">全消去</span>
@@ -2046,10 +2160,36 @@
                             </div>
                             
                             <div className="p-6 overflow-y-auto flex-1">
-                                <p className="text-sm text-slate-600 mb-6">
-                                    各分析をクリックした時の移動先URLを設定します。設定内容はブラウザに保存されます。
+                                <p className="text-sm text-slate-600 mb-4">
+                                    各分析をクリックした時の移動先URLを設定します。設定内容はこの端末のブラウザに保存されます。
                                 </p>
-                                
+
+                                {/* URL設定のJSON書き出し・読込 */}
+                                <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                                    <h3 className="text-sm font-bold text-slate-700 mb-2">リンクURL設定ファイル</h3>
+                                    <p className="text-xs text-slate-500 mb-3">
+                                        設定をJSONファイルで受け渡しできます。配布されたファイルを読み込むと、この端末で各分析のリンクが使えるようになります。
+                                    </p>
+                                    <div className="flex flex-wrap gap-2">
+                                        <label className="px-3 py-2 bg-white border border-emerald-300 text-emerald-700 font-bold rounded cursor-pointer hover:bg-emerald-50 text-xs flex items-center gap-1">
+                                            <IconUpload size={14} /> URL設定を読込
+                                            <input type="file" accept=".json,application/json" onChange={importUrlSettings} className="hidden" />
+                                        </label>
+                                        <button
+                                            onClick={exportUrlSettings}
+                                            className="px-3 py-2 bg-white border border-blue-300 text-blue-700 font-bold rounded hover:bg-blue-50 text-xs flex items-center gap-1"
+                                        >
+                                            <IconDownload size={14} /> URL設定を書き出し
+                                        </button>
+                                        <button
+                                            onClick={clearUrlSettings}
+                                            className="px-3 py-2 bg-white border border-slate-300 text-slate-600 font-bold rounded hover:bg-slate-100 text-xs"
+                                        >
+                                            この端末から消去
+                                        </button>
+                                    </div>
+                                </div>
+
                                 <div className="space-y-4">
                                     {Object.keys(urlLabels).map(id => (
                                         <div key={id} className="flex flex-col gap-1">
