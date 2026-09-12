@@ -16,6 +16,47 @@
     <script src="https://cdn.tailwindcss.com/3.4.16"></script>
 
     <style>
+        /* Version.2: header presentation only */
+        .meta-map-header {
+            position: relative;
+            padding-top: 72px;
+        }
+        .meta-map-version {
+            position: absolute;
+            top: 4px;
+            left: 0;
+            color: #64748b;
+            font-family: "Segoe UI", Arial, sans-serif;
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1.5;
+            letter-spacing: 0.12em;
+        }
+        .meta-map-header .meta-map-actions {
+            position: absolute;
+            top: 0;
+            right: 0;
+            justify-content: flex-end;
+            margin-bottom: 0;
+        }
+        .meta-map-header .meta-map-title {
+            font-family: "Yu Gothic", "YuGothic", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+            font-size: clamp(1.5rem, 4.2vw, 2.25rem);
+            font-weight: 800;
+            line-height: 1.45;
+            letter-spacing: 0.075em;
+            color: #15354d;
+            text-wrap: balance;
+        }
+        @media (min-width: 1024px) {
+            .meta-map-header .meta-map-actions { right: -24px; }
+        }
+        @media (max-width: 479px) {
+            .meta-map-header { padding-top: 92px; }
+            .meta-map-header .meta-map-actions { top: 24px; }
+            .meta-map-header .meta-map-title { letter-spacing: 0.035em; }
+        }
+
         /* スムーズスクロール用 */
         html {
             scroll-behavior: smooth;
@@ -176,6 +217,25 @@
                 min-height: calc(297mm - 28mm);
                 padding-top: 14mm;
             }
+        }
+
+        .meta-map-logo { display: inline-flex; align-items: center; gap: 16px; max-width: 100%; margin: 0 0 20px; text-align: left; }
+        .meta-map-logo-mark { width: 68px; height: 76px; flex: none; }
+        .meta-map-logo-copy { display: flex; flex-direction: column; min-width: 0; }
+        .meta-map-logo-kicker { color: #48748a; font: 600 10px/1.5 "Segoe UI", sans-serif; letter-spacing: .28em; margin-bottom: 4px; }
+        .meta-map-logo-name { color: #15354d; font-family: "Yu Gothic", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif; font-size: clamp(22px, 4vw, 36px); font-weight: 800; line-height: 1.3; letter-spacing: .025em; }
+        .meta-map-logo-name small { display: block; font-size: .43em; letter-spacing: .3em; margin-bottom: 5px; }
+        .meta-map-logo-rule { margin-top: 10px; width: 48px; height: 3px; background: linear-gradient(90deg, #168da3 70%, #c4a46c 70%); }
+        @media (max-width: 479px) {
+            .meta-map-logo { gap: 10px; }
+            .meta-map-logo-mark { width: 48px; height: 60px; }
+            .meta-map-logo-kicker { font-size: 8px; letter-spacing: .16em; }
+        }
+        html.meta-map-modal-open { overflow: hidden !important; overscroll-behavior: none; }
+        .meta-map-modal-open .overflow-y-auto { overscroll-behavior-y: contain; }
+        @media print {
+            html.meta-map-modal-open { overflow: visible !important; }
+            html.meta-map-modal-open body { position: static !important; width: auto !important; padding-right: 0 !important; }
         }
     </style>
 </head>
@@ -778,6 +838,44 @@
             const [isBasicOpen, setIsBasicOpen] = useState(false);
             const [tempBasic, setTempBasic] = useState({ ...EMPTY_BASIC });
             const [promptModal, setPromptModal] = useState(null); // null | { id, text }
+
+
+            // Lock the page for every overlay, preserving the current reading position.
+            const isOverlayOpen = Boolean(isSettingsOpen || isBasicOpen || promptModal ||
+                pestelModal || forcesModal || threecModal || swotModal || strategyModal ||
+                bmcModal || fourpModal || sevensModal || showReport || manualUrl || kaisetsuUrl);
+            useEffect(() => {
+                if (!isOverlayOpen) return;
+                const body = document.body;
+                const root = document.documentElement;
+                const scrollX = window.scrollX;
+                const scrollY = window.scrollY;
+                const properties = ['position', 'top', 'left', 'width', 'overflow', 'padding-right'];
+                const saved = properties.map(name => [name, body.style.getPropertyValue(name), body.style.getPropertyPriority(name)]);
+                const hadClass = root.classList.contains('meta-map-modal-open');
+                const gutter = Math.max(0, window.innerWidth - root.clientWidth);
+                const padding = parseFloat(getComputedStyle(body).paddingRight) || 0;
+                root.classList.add('meta-map-modal-open');
+                body.style.position = 'fixed';
+                body.style.top = '-' + scrollY + 'px';
+                body.style.left = '-' + scrollX + 'px';
+                body.style.width = '100%';
+                body.style.overflow = 'hidden';
+                if (gutter) body.style.paddingRight = (padding + gutter) + 'px';
+                return () => {
+                    saved.forEach(([name, value, priority]) => {
+                        if (value) body.style.setProperty(name, value, priority);
+                        else body.style.removeProperty(name);
+                    });
+                    if (!hadClass) root.classList.remove('meta-map-modal-open');
+                    const behavior = root.style.getPropertyValue('scroll-behavior');
+                    const priority = root.style.getPropertyPriority('scroll-behavior');
+                    root.style.setProperty('scroll-behavior', 'auto', 'important');
+                    window.scrollTo(scrollX, scrollY);
+                    if (behavior) root.style.setProperty('scroll-behavior', behavior, priority);
+                    else root.style.removeProperty('scroll-behavior');
+                };
+            }, [isOverlayOpen]);
 
             const basicRegistered = !!(basicInfo.subject && basicInfo.subject.trim());
 
@@ -1478,8 +1576,9 @@
                 <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800 relative">
                 
                 {/* Header */}
-                <header className="max-w-4xl mx-auto text-center mb-10 md:relative">
-                    <div className="flex items-start justify-center gap-1 mb-4 md:mb-0 md:absolute md:right-0 md:top-0">
+                <header className="meta-map-header max-w-4xl mx-auto text-center mb-10 md:relative">
+                    <span className="meta-map-version">Version.2</span>
+                    <div className="meta-map-actions flex items-start justify-center gap-1 mb-4 md:mb-0 md:absolute md:right-0 md:top-0">
                         <button
                             onClick={exportAllData}
                             disabled={completedCount === 0 && !basicRegistered}
@@ -1531,8 +1630,20 @@
                         </button>
                     </div>
 
-                    <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-4 leading-tight">
-                    経営のメタ視点マップ
+                    <h1 className="meta-map-logo" aria-label="経営のメタ視点マップ">
+                        <svg className="meta-map-logo-mark" viewBox="0 0 72 80" fill="none" aria-hidden="true">
+                            <path d="M36 3 68 21v38L36 77 4 59V21Z" fill="#15354d"/>
+                            <path d="m14 46 22 13 22-13M14 56l22 13 22-13" stroke="#70bac6" strokeWidth="2" strokeLinejoin="round"/>
+                            <path d="m14 33 22-13 22 13-22 13Z" fill="#e7f4f4" stroke="#e7f4f4" strokeWidth="2" strokeLinejoin="round"/>
+                            <path d="M36 20v26m-22-13 22 2 22-2" stroke="#168da3" strokeWidth="2"/>
+                            <circle cx="36" cy="13" r="4" fill="#d2b27c"/>
+                            <path d="M36 46v13" stroke="#d2b27c" strokeWidth="2"/>
+                        </svg>
+                        <span className="meta-map-logo-copy" aria-hidden="true">
+                            <span className="meta-map-logo-kicker">MANAGEMENT META MAP</span>
+                            <span className="meta-map-logo-name"><small>経営の</small>メタ視点マップ</span>
+                            <span className="meta-map-logo-rule"></span>
+                        </span>
                     </h1>
                     <p className="text-lg text-slate-600 mb-3">
                     環境分析から戦略実行までの全体フロー
