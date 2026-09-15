@@ -150,6 +150,19 @@
             line-height: 1.6;
         }
         /* 印刷用レポート: 画面上は通常表示、印刷時はレポート領域だけを出力する */
+        /* Screen-only: print reports retain their existing normal document flow. */
+        @media screen {
+            html.metamap-modal-locked { overflow: hidden !important; overscroll-behavior: none; }
+            html.metamap-modal-locked body {
+                position: fixed !important;
+                top: var(--metamap-lock-top) !important;
+                left: var(--metamap-lock-left) !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+                padding-right: var(--metamap-lock-padding) !important;
+                overflow: hidden !important;
+            }
+        }
         @media print {
             /* アプリ本体は領域ごと消す。visibility:hiddenだとレイアウト領域が残り、
                カード群の分だけ白紙ページが出力されてしまうため display:none を使う */
@@ -278,10 +291,20 @@
             '4p':     { name: '4P分析' },
             '7s':     { name: '7S分析' },
             innovator:{ name: '課題解決イノベーター' },
+            kpi: { name: '売上要素分解（KPIツリー）' },
         };
 
         // 各frameworkのdataスキーマ例（プロンプト末尾に貼る・仕様書§5.2と同一ソース）
         const SCHEMA_EXAMPLES = {
+            kpi: `{
+  "schemaVersion": "1.0", "framework": "kpi", "subject": "{subject}",
+  "analyzedAt": "YYYY-MM-DD", "summary": "目標と本人が選んだ重点KPIの要約",
+  "data": {
+    "goal": { "name": "売上高", "baseValue": 5000000, "currentValue": 5000000, "unit": "円" },
+    "priorityKpis": [ { "id": "customer_count", "name": "客数", "baseValue": 1000, "currentValue": 1000, "unit": "人" } ]
+  }
+}`,
+
             pestel: `{
   "schemaVersion": "1.0", "framework": "pestel", "subject": "{subject}",
   "analyzedAt": "YYYY-MM-DD", "summary": "PESTEL分析全体の要約を1〜2文",
@@ -376,6 +399,11 @@
         // 引き継ぎ元が増える（結果ビューを実装する）たびに、ここに1ブロック足すだけで
         // 後続プロンプトが自動的に充実する設計。
         function buildContextBlock(targetId, results) {
+            if (targetId === 'kpi') {
+                return ['pestel','5forces','3c','swot','strategy','bmc','4p','7s'].filter(id => results[id]).map(id =>
+                    '■ ' + (ANALYSIS_META[id] || {}).name + '\n' + (results[id].summary || '') + '\n' + JSON.stringify(results[id].data || {}, null, 2)
+                ).join('\n\n');
+            }
             const lines = [];
             const pestel = results['pestel'];
             // PESTEL → 5forces / 3c / swot に機会・脅威を引き継ぐ
@@ -476,6 +504,8 @@
                 }
             }
             // ※ 後続分析（7s等）の結果ビュー実装時に、ここへ引き継ぎブロックを追加していく
+            const extra = buildAdditionalContext(results);
+            if (extra) lines.push(extra);
             return lines.join('\n');
         }
 
@@ -525,6 +555,8 @@
                 const r = results[id];
                 if (r && r.summary) done.push(`■ ${(ANALYSIS_META[id]||{}).name}: ${r.summary}`);
             });
+            const extra = buildAdditionalContext(results);
+            if (extra) done.push(extra);
             // SWOTの弱み・脅威があれば「解くべき課題」として明示
             const problems = [];
             const swot = results['swot'];
@@ -545,6 +577,181 @@
             return p;
         }
 
+
+        // KPI / innovation: keep only the integration fields, never tree/chat/candidate data.
+        function isLegacyKpiTree(obj) {
+            return obj && typeof obj === 'object' && !Array.isArray(obj) && !obj.framework &&
+                typeof obj.name === 'string' && typeof obj.operator === 'string' && Array.isArray(obj.children);
+        }
+
+        function convertLegacyKpiTree(tree) {
+            let count = 0;
+            const leaves = [];
+            const metric = n => ({ id: n.id, name: n.name, baseValue: n.baseValue, currentValue: n.value, unit: n.unit });
+            const walk = (n, depth) => {
+                if (++count > 5000 || depth > 100 || !n || typeof n !== 'object' || Array.isArray(n) ||
+                    typeof n.name !== 'string' || !n.name.trim() ||
+                    (n.id != null && typeof n.id !== 'string') || (n.unit != null && typeof n.unit !== 'string') ||
+                    !['leaf','multiply','sum','add'].includes(n.operator) || !Array.isArray(n.children) ||
+                    !['value','baseValue'].every(k => typeof n[k] === 'number' && Number.isFinite(n[k])) ||
+                    (n.operator === 'leaf' && n.children.length)) throw new Error('KPI V1ツリーの項目・数値・階層を確認してください。');
+                if (n.children.length === 0 && depth > 0) leaves.push(metric(n));
+                n.children.forEach(child => walk(child, depth + 1));
+            };
+            walk(tree, 0);
+            return { schemaVersion: '1.0', framework: 'kpi', sourceFormat: 'kpi-tree-v1', subject: '', analyzedAt: '',
+                summary: 'KPI V1の保存ツリーから取り込み。構成KPIは末端の入力項目です（重点KPIの選定情報はありません）。数値は保存時点の基準値と試算値です。',
+                data: { goal: metric(tree), priorityKpis: leaves } };
+        }
+
+        function parseAdditionalResult(obj, expectedFramework) {
+            if (isLegacyKpiTree(obj) && (!expectedFramework || expectedFramework === 'kpi')) {
+                try { obj = convertLegacyKpiTree(obj); }
+                catch (e) { return { ok: false, error: e.message }; }
+            }
+            const fail = error => ({ ok: false, error });
+            const record = v => v && typeof v === 'object' && !Array.isArray(v);
+            if (!record(obj) || !['kpi', 'innovation'].includes(obj.framework) ||
+                (expectedFramework && obj.framework !== expectedFramework)) return fail('対応していない形式です');
+            const d = obj.data;
+            if (!record(d)) return fail('data項目がありません。');
+            for (const key of ['subject', 'analyzedAt', 'summary']) {
+                if (obj[key] != null && typeof obj[key] !== 'string') return fail(key + 'は文字列で指定してください。');
+            }
+            const pick = (item, keys) => Object.fromEntries(keys.filter(k => item[k] !== undefined).map(k => [k, item[k]]));
+            const validFields = (item, texts, numbers = []) => record(item) &&
+                texts.every(k => item[k] == null || typeof item[k] === 'string') &&
+                numbers.every(k => item[k] == null || (typeof item[k] === 'number' && Number.isFinite(item[k])));
+            let data;
+            if (obj.framework === 'kpi') {
+                if (!validFields(d.goal, ['name','unit'], ['baseValue','currentValue']) || !Array.isArray(d.priorityKpis) ||
+                    !d.priorityKpis.every(k => validFields(k, ['id','name','unit'], ['baseValue','currentValue','impactPercent'])))
+                    return fail('KPIのdata.goalとdata.priorityKpisの形式を確認してください。');
+                data = {
+                    goal: pick(d.goal, ['name','baseValue','currentValue','unit']),
+                    priorityKpis: d.priorityKpis.map(k => pick(k, ['id','name','baseValue','currentValue','unit','impactPercent']))
+                };
+            } else {
+                if (typeof d.problem !== 'string' || !d.problem.trim() ||
+                    (d.abstractProblem != null && typeof d.abstractProblem !== 'string')) return fail('課題解決のdata.problemの形式を確認してください。');
+                const ideas = d.selectedIdeas === undefined ? [] : d.selectedIdeas;
+                const experiments = d.experiments === undefined ? [] : d.experiments;
+                if (!Array.isArray(ideas) || !ideas.every(v => validFields(v, ['title','principle','sourceIndustry','expectedEffect'])) ||
+                    !Array.isArray(experiments) || !experiments.every(v => validFields(v, ['ideaTitle','hypothesis','test','metric','successCondition'])))
+                    return fail('selectedIdeasとexperimentsの形式を確認してください。');
+                data = {
+                    problem: d.problem, abstractProblem: d.abstractProblem || '',
+                    selectedIdeas: ideas.map(v => pick(v, ['title','principle','sourceIndustry','expectedEffect'])),
+                    experiments: experiments.map(v => pick(v, ['ideaTitle','hypothesis','test','metric','successCondition']))
+                };
+            }
+            return { ok: true, value: { ...pick(obj, ['schemaVersion','framework','subject','analyzedAt','summary']), ...(obj.framework === 'kpi' && obj.sourceFormat === 'kpi-tree-v1' ? { sourceFormat: 'kpi-tree-v1' } : {}), data } };
+        }
+
+        function formatKpiValue(value, unit) {
+            if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+            if (unit === '円' && Math.abs(value) >= 10000 && value % 10000 === 0)
+                return (value / 10000).toLocaleString('ja-JP') + '万円';
+            return value.toLocaleString('ja-JP', { maximumFractionDigits: 10 }) + (unit || '');
+        }
+
+        function additionalResultLines(result) {
+            if (!result || !result.data) return [];
+            const d = result.data, lines = [];
+            if (result.framework === 'kpi') {
+                const goal = d.goal || {};
+                if (goal.name) lines.push('目標：' + goal.name);
+                const values = [goal.baseValue, goal.currentValue].map(v => formatKpiValue(v, goal.unit)).filter(Boolean);
+                if (values.length) lines.push(values.join(' → '));
+                if ((d.priorityKpis || []).length) lines.push(result.sourceFormat === 'kpi-tree-v1' ? '構成KPI（V1入力項目）：' : '重点KPI：');
+                (d.priorityKpis || []).forEach(k => {
+                    if (k.name) lines.push('・' + k.name);
+                    if (typeof k.impactPercent === 'number') lines.push('影響度：' + (k.impactPercent >= 0 ? '+' : '') + k.impactPercent + '%');
+                });
+            } else if (result.framework === 'innovation') {
+                if (d.problem) lines.push('課題：' + d.problem);
+                if (d.abstractProblem) lines.push('本質課題：' + d.abstractProblem);
+                (d.selectedIdeas || []).forEach(v => {
+                    if (v.title) lines.push('採用アイデア：' + v.title);
+                    if (v.principle) lines.push('解決原理：' + v.principle);
+                });
+                (d.experiments || []).forEach(v => {
+                    if (v.test) lines.push('実験：' + v.test);
+                    if (v.metric) lines.push('確認KPI：' + v.metric);
+                });
+            }
+            return lines;
+        }
+
+        // Standalone local infographics; imported text is always escaped.
+        function buildInfographicHtml(result) {
+            const checked = parseAdditionalResult(result);
+            if (!checked.ok) throw new Error(checked.error);
+            const r = checked.value, d = r.data;
+            const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+            const text = value => esc(value || '未設定');
+            const legacy = r.sourceFormat === 'kpi-tree-v1';
+            const title = r.framework === 'kpi' ? (legacy ? '売上要素分解の設計マップ' : '重点KPIの設計マップ') : '課題解決の実行マップ';
+            const note = (label, value) => value ? `<p class="note"><b>${esc(label)}</b> ${esc(value)}</p>` : '';
+            const empty = '<p class="empty">未設定</p>';
+            const list = (items, render) => items.length ? items.map(render).join('') : empty;
+            const step = (n, label, content) => `<section class="step"><div class="step-head"><span class="number">${n}</span><h2>${label}</h2></div>${content}</section>`;
+            const metric = (item, label) => `<article class="metric"><span class="eyebrow">${label}</span><h3>${text(item.name)}</h3><div class="values"><div><small>基準値</small><strong>${esc(formatKpiValue(item.baseValue, item.unit) || '未設定')}</strong></div><span aria-hidden="true">→</span><div><small>設計・試算値</small><strong>${esc(formatKpiValue(item.currentValue, item.unit) || '未設定')}</strong></div></div>${typeof item.impactPercent === 'number' ? `<p class="impact">影響度 ${item.impactPercent >= 0 ? '+' : ''}${esc(item.impactPercent)}%</p>` : ''}</article>`;
+            let content;
+            if (r.framework === 'kpi') {
+                content = `<section class="goal">${metric(d.goal, '最上位目標')}</section><div class="connector">↓</div><section><h2>${legacy ? '構成KPI（V1入力項目）' : '重点KPI'} <span class="count">${d.priorityKpis.length}指標</span></h2><div class="grid">${list(d.priorityKpis, (k, i) => metric(k, `${legacy ? '構成KPI' : '重点KPI'} ${i + 1}`))}</div></section><aside><b>KPIツリーで設計 → 重点KPIを確認 → KPI Expressで実績管理</b><p>数値は取り込んだKPI設計時の基準値・設計／試算値です。実績や達成率を示すものではありません。日々の実績入力・進捗管理は、別のKPI Expressアプリで行います。</p></aside>`;
+            } else {
+                content = '<div class="flow">' + [
+                    step('01', '課題', `<p class="lead">${text(d.problem)}</p>`),
+                    step('02', '本質', `<p class="lead">${text(d.abstractProblem)}</p>`),
+                    step('03', '解決原理', list(d.selectedIdeas, idea => `<article>${note('採用案', idea.title)}<p class="lead">${text(idea.principle)}</p>${note('参考業種', idea.sourceIndustry)}</article>`)),
+                    step('04', '採用案', list(d.selectedIdeas, idea => `<article><h3>${text(idea.title)}</h3>${note('期待する効果', idea.expectedEffect)}</article>`)),
+                    step('05', '実験', list(d.experiments, (ex, i) => `<article><h3>実験 ${i + 1}${ex.ideaTitle ? '｜' + esc(ex.ideaTitle) : ''}</h3>${note('仮説', ex.hypothesis)}<p class="lead">${text(ex.test)}</p></article>`)),
+                    step('06', '確認KPI', list(d.experiments, (ex, i) => `<article><h3>実験 ${i + 1}${ex.ideaTitle ? '｜' + esc(ex.ideaTitle) : ''}</h3><p class="lead">${text(ex.metric)}</p>${note('成功条件', ex.successCondition)}</article>`))
+                ].join('<div class="connector" aria-hidden="true">↓</div>') + '</div>';
+            }
+            return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${esc(title)}｜${esc(r.subject || '経営のメタ視点マップ')}</title><style>
+            *{box-sizing:border-box}body{margin:0;background:#f5f6fa;color:#243047;font-family:system-ui,-apple-system,'Segoe UI','Yu Gothic',sans-serif;line-height:1.7}main{max-width:1080px;margin:auto;padding:48px 32px}header{border-top:6px solid var(--accent);padding:26px 0;margin-bottom:24px}body{--accent:${r.framework === 'kpi' ? '#be185d' : '#6d28d9'};--tint:${r.framework === 'kpi' ? '#fff1f5' : '#f5f0ff'}}.eyebrow{font-size:12px;font-weight:750;letter-spacing:.12em;color:var(--accent)}h1{font-size:clamp(26px,4vw,38px);line-height:1.4;margin:10px 0}h2{font-size:21px;margin:0 0 16px}h3{font-size:19px;margin:8px 0 14px}.meta{color:#58647a;font-size:14px}.summary{border-left:3px solid var(--accent);padding:10px 16px;background:white;white-space:pre-wrap}.goal .metric{background:var(--tint);border-color:var(--accent)}.metric,.step{background:white;border:1px solid #dde1ea;border-radius:16px;padding:24px;break-inside:avoid}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.values{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.values small{display:block;font-size:12px;color:#58647a}.values strong{font-size:clamp(20px,3vw,30px);color:var(--accent)}.connector{text-align:center;font-size:30px;color:var(--accent);line-height:1.5;padding:5px}.step-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}.step-head h2{margin:0}.number{background:var(--accent);color:white;font-weight:700;border-radius:50%;width:38px;height:38px;display:grid;place-items:center}.lead{font-size:19px;margin:8px 0;white-space:pre-wrap}.note{font-size:14px;white-space:pre-wrap}.note b{color:var(--accent)}article+article{margin-top:16px;padding-top:16px;border-top:1px solid #e4e7ee}.grid article+article{margin-top:0;padding-top:24px}.count{font-size:13px;color:#58647a}.impact{font-size:13px;color:var(--accent)}aside{background:var(--tint);padding:22px;border-radius:12px;margin-top:28px}aside p{font-size:13px;margin-bottom:0}.empty{color:#68748a}footer{font-size:12px;color:#68748a;margin-top:32px}h1,h2,h3,p,strong{overflow-wrap:anywhere}@media(max-width:640px){main{padding:24px 16px}.grid{grid-template-columns:1fr}.metric,.step{padding:18px}.values{gap:12px}}@media print{body{background:white}main{padding:0;max-width:none}header{padding:14px 0;margin-bottom:16px}h1{font-size:26px}.metric,.step,aside{break-inside:avoid}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}@page{size:A4;margin:14mm}}
+            </style></head><body><main><header><span class="eyebrow">経営のメタ視点マップ</span><h1>${esc(title)}</h1><p class="meta">${esc(r.subject || '対象未設定')} ｜ 分析日：${esc(r.analyzedAt || '未設定')}</p>${r.summary ? `<p class="summary">${esc(r.summary)}</p>` : ''}</header>${content}<footer>取り込み結果から生成した保存用スナップショットです。データ更新後は統合マップから再生成してください。</footer></main></body></html>`;
+        }
+
+        function deliverInfographic(result, download) {
+            let url;
+            try {
+                const html = buildInfographicHtml(result);
+                url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+                if (download) {
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = ((result.subject || '経営のメタ視点マップ') + '_' + result.framework + '_ビジュアル').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0,150) + '.html';
+                    document.body.appendChild(a); a.click(); a.remove();
+                } else {
+                    const tab = window.open('about:blank', '_blank');
+                    if (!tab) { alert('新規タブを開けませんでした。ポップアップを許可するか「HTML保存」をお使いください。'); return; }
+                    tab.opener = null;
+                    tab.location.replace(url);
+                }
+            } catch (error) {
+                alert('ビジュアルを生成できませんでした：' + error.message);
+            } finally {
+                if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
+            }
+        }
+
+        function InfographicActions({ result }) {
+            if (!result) return null;
+            return <div className="no-print flex flex-wrap gap-2 mt-3" onClick={e => e.stopPropagation()}>
+                <button type="button" onClick={() => deliverInfographic(result, false)} className="px-4 py-2 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 text-sm">ビジュアルで見る</button>
+                <button type="button" onClick={() => deliverInfographic(result, true)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 text-sm">HTML保存</button>
+            </div>;
+        }
+
+
+        function buildAdditionalContext(results) {
+            return ['kpi', 'innovation'].filter(id => results[id]).map(id =>
+                '【' + (id === 'kpi' ? 'KPI' : '課題解決イノベーター') + '】\n' + additionalResultLines(results[id]).join('\n')
+            ).join('\n\n');
+        }
 
         function loadResults() {
             try {
@@ -734,6 +941,35 @@
         );
 
         // --- メインコンポーネント ---
+        // One lock shared by every overlay. Switching/stacking modals keeps it active.
+        function useModalScrollLock(active) {
+            React.useLayoutEffect(() => {
+                if (!active) return;
+                const root = document.documentElement;
+                const body = document.body;
+                const x = window.scrollX, y = window.scrollY;
+                const gap = Math.max(0, window.innerWidth - root.clientWidth);
+                const padding = parseFloat(getComputedStyle(body).paddingRight) || 0;
+                const values = {
+                    '--metamap-lock-top': -y + 'px',
+                    '--metamap-lock-left': -x + 'px',
+                    '--metamap-lock-padding': (padding + gap) + 'px'
+                };
+                const previous = Object.keys(values).map(key => [key, root.style.getPropertyValue(key), root.style.getPropertyPriority(key)]);
+                const hadClass = root.classList.contains('metamap-modal-locked');
+                Object.entries(values).forEach(([key, value]) => root.style.setProperty(key, value));
+                root.classList.add('metamap-modal-locked');
+                return () => {
+                    if (!hadClass) root.classList.remove('metamap-modal-locked');
+                    previous.forEach(([key, value, priority]) => {
+                        if (value) root.style.setProperty(key, value, priority);
+                        else root.style.removeProperty(key);
+                    });
+                    window.scrollTo({ left: x, top: y, behavior: 'instant' });
+                };
+            }, [active]);
+        }
+
         const FrameworkInfographic = () => {
 
             // デフォルトのURL設定
@@ -742,24 +978,67 @@
             // 一度読み込めばブラウザ（localStorage）に保存され、次回以降は読込不要。
             const defaultUrls = {
                 'pestel': '',
+                'pestel_v2': '',
                 '5forces': '',
+                '5forces_v2': '',
                 '3c': '',
+                '3c_v2': '',
                 'swot': '',
+                'swot_v2': '',
                 'strategy': '',
+                'strategy_v2': '',
                 'bmc': '',
+                'bmc_v2': '',
                 '4p': '',
+                '4p_v2': '',
                 '7s': '',
+                '7s_v2': '',
                 'innovator': '',
-                'kpi': ''
+                'innovator_v2': '',
+                'kpi': '',
+                'kpi_v2': ''
             };
 
             // 状態管理
             const [urls, setUrls] = useState(defaultUrls);
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
             const [tempUrls, setTempUrls] = useState(defaultUrls);
+            const [showCanvasV1, setShowCanvasV1] = useState(() => {
+                try { return localStorage.getItem('frameworkCanvasV1Visible') !== 'false'; }
+                catch (e) { return true; }
+            });
+            const [tempShowCanvasV1, setTempShowCanvasV1] = useState(showCanvasV1);
 
             // --- PESTEL段階導入用の状態 ---
             const [results, setResults] = useState({});          // { pestel: エンベロープ全体, ... }
+            const [extraModal, setExtraModal] = useState(null);
+            const [extraText, setExtraText] = useState('');
+            const [extraError, setExtraError] = useState('');
+            const openExtra = id => { setExtraText(''); setExtraError(''); setExtraModal({ id, view: 'menu' }); };
+            const extraResult = extraModal && results[extraModal.id];
+            const importExtra = () => {
+                let obj;
+                try { obj = JSON.parse(extraText.replace(/```json|```/g, '').trim()); }
+                catch (err) { setExtraError('JSONとして読み取れませんでした。'); return; }
+                const parsed = parseAdditionalResult(obj, extraModal.id);
+                if (parsed.ok && isLegacyKpiTree(obj)) parsed.value.subject = basicInfo.subject || ''; 
+                if (!parsed.ok) { setExtraError(parsed.error); return; }
+                const next = { ...results, [extraModal.id]: parsed.value };
+                setResults(next);
+                try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                catch (err) { console.warn('結果の保存に失敗:', err); }
+                setExtraError(''); setExtraText('');
+                setToast((extraModal.id === 'kpi' ? 'KPI' : '課題解決イノベーター') + 'を取り込みました');
+                setExtraModal({ ...extraModal, view: 'result' });
+            };
+            const handleExtraFile = e => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => { setExtraText(String(reader.result || '')); setExtraError(''); };
+                reader.onerror = () => setExtraError('ファイルの読み込みに失敗しました');
+                reader.readAsText(file, 'utf-8'); e.target.value = '';
+            };
             const [pestelModal, setPestelModal] = useState(null); // null | 'menu' | 'import' | 'result'
             const [importText, setImportText] = useState('');     // 取込テキストエリアの内容
             const [importError, setImportError] = useState('');   // 取込エラー表示
@@ -839,6 +1118,13 @@
             const [tempBasic, setTempBasic] = useState({ ...EMPTY_BASIC });
             const [promptModal, setPromptModal] = useState(null); // null | { id, text }
 
+            useModalScrollLock(Boolean(
+                isSettingsOpen || isBasicOpen || promptModal || extraModal ||
+                pestelModal || forcesModal || threecModal || swotModal ||
+                strategyModal || bmcModal || fourpModal || sevensModal ||
+                showReport || manualUrl || kaisetsuUrl
+            ));
+
             const basicRegistered = !!(basicInfo.subject && basicInfo.subject.trim());
 
             // 初期ロード時にローカルストレージから読み込み
@@ -861,9 +1147,12 @@
             }, []);
 
             // --- 基本情報: 保存 ---
-            const openBasic = () => { setTempBasic({ ...basicInfo }); setIsBasicOpen(true); };
+            const openBasic = () => { setTempBasic({ ...basicInfo }); setTempShowCanvasV1(showCanvasV1); setIsBasicOpen(true); };
             const saveBasic = () => {
                 if (!tempBasic.subject.trim()) { setToast('会社名・事業名を入力してください'); return; }
+                setShowCanvasV1(tempShowCanvasV1);
+                try { localStorage.setItem('frameworkCanvasV1Visible', String(tempShowCanvasV1)); }
+                catch (e) { console.warn('Canvas表示設定の保存に失敗:', e); }
                 setBasicInfo(tempBasic);
                 try { localStorage.setItem(BASIC_INFO_KEY, JSON.stringify(tempBasic)); }
                 catch (e) { console.warn('基本情報の保存に失敗:', e); }
@@ -1424,9 +1713,27 @@
                         setToast('JSONとして読み取れませんでした');
                         return;
                     }
+                    if (obj && (obj.framework === 'kpi' || obj.framework === 'innovation' || isLegacyKpiTree(obj))) {
+                        const parsed = parseAdditionalResult(obj);
+                        if (parsed.ok && isLegacyKpiTree(obj)) parsed.value.subject = basicInfo.subject || '';
+                        if (!parsed.ok) { setToast(parsed.error); return; }
+                        const next = { ...results, [parsed.value.framework]: parsed.value };
+                        setResults(next);
+                        try { localStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(next)); }
+                        catch (err) { console.warn('結果の保存に失敗:', err); }
+                        setToast((parsed.value.framework === 'kpi' ? 'KPI' : '課題解決イノベーター') + 'を取り込みました');
+                        return;
+                    }
                     if (!obj || typeof obj !== 'object' || !obj.results) {
                         setToast('このマップのエクスポート形式ではありません');
                         return;
+                    }
+                    for (const id of ['kpi', 'innovation']) {
+                        if (obj.results[id] != null) {
+                            const parsed = parseAdditionalResult(obj.results[id], id);
+                            if (!parsed.ok) { setToast(parsed.error); return; }
+                            obj.results[id] = parsed.value;
+                        }
                     }
                     if (!window.confirm('現在の基本情報・分析結果をすべて、このファイルの内容で上書きします。よろしいですか？')) return;
                     const restoredBasic = { ...EMPTY_BASIC, ...(obj.basicInfo || {}) };
@@ -1525,12 +1832,13 @@
             };
 
             // 外部リンク遷移機能（各分析カード用）
-            const handleAnalysisClick = (analysisId) => {
-                const targetUrl = urls[analysisId];
+            const handleAnalysisClick = (analysisId, version = 'v1') => {
+                const key = version === 'v2' ? `${analysisId}_v2` : analysisId;
+                const targetUrl = urls[key];
                 if (targetUrl) {
                     window.open(targetUrl, '_blank', 'noopener,noreferrer');
                 } else {
-                    alert('リンクURLが設定されていません。\n右上の「設定」ボタンから「URL設定を読込」で、配布されたJSONファイルを読み込んでください。');
+                    alert(`Canvas（${version === 'v2' ? 'V2' : 'V1'}）のURLが設定されていません。\n右上の「設定」から登録してください。`);
                 }
             };
 
@@ -1542,7 +1850,7 @@
                     <div className="app-header-actions">
                         <button
                             onClick={exportAllData}
-                            disabled={completedCount === 0 && !basicRegistered}
+                            disabled={completedCount === 0 && !results.kpi && !results.innovation && !basicRegistered}
                             className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-100 rounded-lg transition-colors flex flex-col items-center gap-1 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                             title="すべてのデータをJSONで保存"
                         >
@@ -2017,8 +2325,8 @@
                         </div>
                         <div
                             className="w-full bg-gradient-to-br from-pink-500 via-rose-400 to-fuchsia-500 rounded-2xl shadow-lg p-0.5 hover:shadow-2xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                            onClick={() => handleAnalysisClick('kpi')}
-                            title="クリックしてシミュレーターを開く"
+                            onClick={() => openExtra('kpi')}
+                            title="クリックして分析・結果取込メニューを開く"
                         >
                             <div className="bg-white rounded-2xl p-6">
                             <div className="flex justify-between items-center mb-3">
@@ -2028,6 +2336,8 @@
                                 </h2>
                                 <span className="text-xs bg-pink-100 text-pink-800 px-2 py-1 rounded font-bold">シミュレーション</span>
                             </div>
+                            <div className="mb-3"><PromptButton onClick={() => openPrompt('kpi')} /></div>
+                            <InfographicActions result={results.kpi} />
                             <p className="text-slate-600 mb-4 text-sm">売上を「客数×客単価」のように要素へ分解し、どの指標を動かすと売上がいくら変わるかを試算します。</p>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div className="bg-pink-50 p-3 rounded border border-pink-100">
@@ -2055,8 +2365,8 @@
                         </div>
                         <div
                             className="w-full bg-gradient-to-br from-fuchsia-500 via-purple-500 to-indigo-500 rounded-2xl shadow-lg p-0.5 hover:shadow-2xl transition-shadow cursor-pointer transform hover:-translate-y-1 transition-all duration-200"
-                            onClick={() => openPrompt('innovator')}
-                            title="クリックしてプロンプトを表示"
+                            onClick={() => openExtra('innovation')}
+                            title="クリックして分析・結果取込メニューを開く"
                         >
                             <div className="bg-white rounded-2xl p-6">
                                 <div className="flex justify-between items-start mb-2">
@@ -2066,16 +2376,19 @@
                                     </h2>
                                     <span className="text-xs font-semibold bg-fuchsia-100 text-fuchsia-700 px-2 py-1 rounded">アイデア発想</span>
                                 </div>
+                                <InfographicActions result={results.innovation} />
                                 <p className="text-slate-600 mb-4 text-sm">これまでの分析で見えた課題を、<b>他業種の成功事例の仕組み</b>を応用して解決する。AIと対話しながら画期的なアイデアを引き出します。</p>
                                 <div className="flex items-center gap-3 flex-wrap">
+                                    {showCanvasV1 && (
                                     <button
                                         onClick={(e) => { e.stopPropagation(); handleAnalysisClick('innovator'); }}
                                         className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 text-white font-bold rounded-lg hover:opacity-90 transition-opacity text-sm shadow"
                                     >
                                         <IconZap size={16} /> Canvasでアイデアを出す
                                     </button>
+                                    )}
                                     <PromptButton onClick={() => openPrompt('innovator')} />
-                                    <span className="text-xs text-slate-400">※ このカードは結果の取り込み対象外です</span>
+                                    <span className="text-xs text-slate-400">※ カードを押すと結果を取り込めます</span>
                                 </div>
                             </div>
                         </div>
@@ -2095,7 +2408,7 @@
                                     </p>
                                 )}
                                 <div className="flex items-center gap-3 mt-2 text-xs">
-                                    <button onClick={exportAllData} disabled={completedCount === 0 && !basicRegistered}
+                                    <button onClick={exportAllData} disabled={completedCount === 0 && !results.kpi && !results.innovation && !basicRegistered}
                                         className="text-slate-500 hover:text-slate-700 underline disabled:opacity-30 disabled:cursor-not-allowed">
                                         全結果をJSONで書き出す
                                     </button>
@@ -2129,14 +2442,18 @@
                         </div>
 
                         {/* 要約一覧（フェーズ順） */}
-                        {completedCount === 0 ? (
+                        {completedCount === 0 && !results.kpi && !results.innovation ? (
                             <p className="text-sm text-slate-400 text-center py-6">まだ取り込まれた分析結果がありません。各カードから分析結果を取り込むとここに表示されます。</p>
                         ) : (
                             <div className="space-y-2">
-                                {ORDER.filter(id => results[id]).map(id => (
+                                {[...ORDER, 'kpi', 'innovation'].filter(id => results[id]).map(id => (
                                     <div key={id} className="border border-slate-200 rounded-lg px-4 py-2.5 flex items-start gap-3">
-                                        <span className="text-xs font-bold text-slate-400 shrink-0 w-24">{(ANALYSIS_META[id] || {}).name}</span>
-                                        <p className="text-sm text-slate-700 flex-1">{results[id].summary || '（要約なし）'}</p>
+                                        <span className="text-xs font-bold text-slate-400 shrink-0 w-24">{id === 'kpi' ? 'KPI' : id === 'innovation' ? '課題解決イノベーター' : (ANALYSIS_META[id] || {}).name}</span>
+                                        {id === 'kpi' || id === 'innovation' ? (
+                                            <div className="text-sm text-slate-700 flex-1">
+                                                {additionalResultLines(results[id]).map((line, i) => <p key={i}>{line}</p>)}
+                                            </div>
+                                        ) : <p className="text-sm text-slate-700 flex-1">{results[id].summary || '（要約なし）'}</p>}
                                     </div>
                                 ))}
                             </div>
@@ -2255,15 +2572,23 @@
 
                                 <div className="space-y-4">
                                     {Object.keys(urlLabels).map(id => (
-                                        <div key={id} className="flex flex-col gap-1">
-                                            <label className="text-sm font-bold text-slate-700">{urlLabels[id]}</label>
-                                            <input 
-                                                type="url" 
-                                                value={tempUrls[id] || ''} 
-                                                onChange={(e) => handleUrlChange(id, e.target.value)}
-                                                placeholder="https://..."
-                                                className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                                            />
+                                        <div key={id} className="flex flex-col gap-2">
+                                            <div className="text-sm font-bold text-slate-700">{urlLabels[id]}</div>
+                                            {['v1', 'v2'].map(version => {
+                                                const key = version === 'v2' ? id + '_v2' : id;
+                                                return <div key={version} className="flex flex-col gap-1">
+                                                    <label htmlFor={'canvas-url-' + key} className="text-xs font-bold text-slate-500">Canvas {version.toUpperCase()}</label>
+                                                    <input
+                                                        id={'canvas-url-' + key}
+                                                        aria-label={urlLabels[id] + ' Canvas ' + version.toUpperCase()}
+                                                        type="url"
+                                                        value={tempUrls[key] || ''}
+                                                        onChange={(e) => handleUrlChange(key, e.target.value)}
+                                                        placeholder="https://..."
+                                                        className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                                                    />
+                                                </div>;
+                                            })}
                                         </div>
                                     ))}
                                 </div>
@@ -2282,6 +2607,109 @@
                                 >
                                     保存する
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {extraModal && (
+                    <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4"
+                         onClick={() => setExtraModal(null)}>
+                        <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col"
+                             onClick={(e) => e.stopPropagation()}>
+                            {/* ヘッダ */}
+                            <div className="flex justify-between items-center p-4 border-b border-slate-200">
+                                <h2 className="text-xl font-bold text-blue-800 flex items-center gap-2">
+                                    <IconGlobe size={20} />
+                                    {extraModal.id === 'kpi' ? 'KPIツリー' : '課題解決イノベーター'}
+                                    {extraResult ? (
+                                        <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded">✓ 取込済</span>
+                                    ) : (
+                                        <span className="text-xs font-bold bg-slate-100 text-slate-400 px-2 py-1 rounded">未取込</span>
+                                    )}
+                                </h2>
+                                <button onClick={() => setExtraModal(null)} className="text-slate-500 hover:text-slate-800 p-1">
+                                    <IconX size={24} />
+                                </button>
+                            </div>
+
+                            <div className="p-6 overflow-y-auto flex-1">
+                                {/* --- メニュー --- */}
+                                <InfographicActions result={extraResult} />
+                                {extraModal.view === 'menu' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600 mb-4">
+                                            ①Canvasで分析し、出力されたJSONを②で取り込みます。
+                                        </p>
+                                        <button onClick={() => { setExtraModal(null); openPrompt(extraModal.id === 'innovation' ? 'innovator' : 'kpi'); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors text-sm">
+                                            <IconGlobe size={18} /> ① Canvasで分析する
+                                        </button>
+                                        <button
+                                            onClick={() => { setExtraModal({ ...extraModal, view: 'import' }); setExtraError(''); }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors text-sm"
+                                        >
+                                            <IconLayers size={18} /> ② 結果を取り込む（JSON貼り付け）
+                                        </button>
+                                        {extraResult && (
+                                            <button
+                                                onClick={() => setExtraModal({ ...extraModal, view: 'result' })}
+                                                className="w-full flex items-center gap-3 px-4 py-3 bg-emerald-50 text-emerald-700 font-bold rounded-lg hover:bg-emerald-100 transition-colors text-sm"
+                                            >
+                                                <IconSearch size={18} /> 取り込んだ結果を見る
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* --- 取込ビュー --- */}
+                                {extraModal.view === 'import' && (
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-slate-600">
+                                            Canvasの出力ボタンで得たJSONを貼り付けて「取り込む」を押してください。
+                                        </p>
+                                        <textarea
+                                            value={extraText}
+                                            onChange={(e) => { setExtraText(e.target.value); setExtraError(''); }}
+                                            placeholder='Canvasから出力したJSONを貼り付けてください'
+                                            className="w-full h-48 px-3 py-2 border border-slate-300 rounded font-mono text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        {extraError && (
+                                            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">{extraError}</p>
+                                        )}
+                                        <div className="flex items-center justify-between gap-3">
+                                            <label className="text-xs text-slate-500 cursor-pointer hover:text-slate-700 underline">
+                                                ファイルから読み込む
+                                                <input type="file" accept=".json,application/json" onChange={handleExtraFile} className="hidden" />
+                                            </label>
+                                            <div className="flex gap-2">
+                                                <button
+                                                    onClick={() => { setExtraModal({ ...extraModal, view: extraResult ? 'result' : 'menu' }); setExtraError(''); }}
+                                                    className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm"
+                                                >
+                                                    戻る
+                                                </button>
+                                                <button
+                                                    onClick={importExtra}
+                                                    disabled={!extraText.trim()}
+                                                    className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                                                >
+                                                    取り込む
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {extraModal.view === 'result' && extraResult && (
+                                    <div className="space-y-4">
+                                        <div className="text-sm text-slate-700">
+                                            {additionalResultLines(extraResult).map((line, i) => <p key={i}>{line}</p>)}
+                                        </div>
+                                        <button onClick={() => setExtraModal({ ...extraModal, view: 'menu' })}
+                                            className="px-4 py-2 text-slate-600 font-bold hover:bg-slate-100 rounded text-sm">戻る</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -3457,6 +3885,13 @@
                             </div>
                             <div className="p-6">
                                 <p className="text-sm text-slate-600 mb-4">分析対象の情報を登録します。各分析の「プロンプト」ボタンで生成される文面に自動で含まれます。<span className="text-slate-400">具体的に書くほど、AIの分析が的確になります。</span></p>
+                                <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                                        <input type="checkbox" checked={tempShowCanvasV1} onChange={e => setTempShowCanvasV1(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+                                        Canvas（V1）を表示する
+                                    </label>
+                                    <p className="text-xs text-slate-500 mt-2">オフにすると、各分析のV1を開くボタンを非表示にします。登録済みURLは保持されます。この表示設定は「保存する」でこのブラウザに保存されます。</p>
+                                </div>
                                 <div className="space-y-3">
                                     {[
                                         ['subject', '会社名・事業名', true, '例：株式会社サンプル製作所'],
@@ -3509,11 +3944,19 @@
                                 <textarea readOnly value={promptModal.text} onClick={(e) => e.target.select()}
                                     className="w-full h-72 px-3 py-2 border border-slate-300 rounded font-mono text-xs bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                             </div>
-                            <div className="p-4 border-t border-slate-200 flex justify-between gap-3 bg-slate-50 rounded-b-xl">
-                                <button onClick={() => { setPromptModal(null); handleAnalysisClick(promptModal.id); }}
-                                    className="px-4 py-2 text-blue-700 font-bold hover:bg-blue-50 rounded text-sm flex items-center gap-1">
-                                    <IconGlobe size={16} /> Canvasを開く
-                                </button>
+                            <div className="p-4 border-t border-slate-200 flex flex-col sm:flex-row justify-between gap-3 bg-slate-50 rounded-b-xl">
+                                <div className="flex flex-wrap gap-2">
+                                    {showCanvasV1 && (
+                                    <button onClick={() => { setPromptModal(null); handleAnalysisClick(promptModal.id, 'v1'); }}
+                                        className="px-4 py-2 text-blue-700 font-bold hover:bg-blue-50 rounded text-sm flex items-center gap-1">
+                                        <IconGlobe size={16} /> Canvas（V1）を開く
+                                    </button>
+                                    )}
+                                    <button onClick={() => { setPromptModal(null); handleAnalysisClick(promptModal.id, 'v2'); }}
+                                        className="px-4 py-2 text-violet-700 bg-violet-50 font-bold hover:bg-violet-100 rounded text-sm flex items-center gap-1">
+                                        <IconGlobe size={16} /> Canvas（V2）を開く
+                                    </button>
+                                </div>
                                 <button onClick={copyPrompt}
                                     className="px-6 py-2 bg-blue-600 text-white font-bold hover:bg-blue-700 rounded shadow-sm text-sm">クリップボードにコピー</button>
                             </div>
